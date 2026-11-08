@@ -9,6 +9,13 @@ tests/fixtures/crop_evidence_identity.json, which was recorded from
 core/detect/crop.py as it stood before CropResult.samples existed (commit
 8f27649). Never re-record that fixture to make a failing identity test pass:
 a difference there is a changed box, flag or time, which is the bug.
+
+The fixture was recorded while DT_SCORE_THRESHOLD was 0.9, which was later
+recalibrated to 0.75 for PP-OCRv6 (see that constant). The identity replay
+therefore pins the threshold to the recorded value: it asks whether evidence
+changed the result, not whether the threshold did. The threshold's own effect
+is covered separately, at the live value, by the samples tests below and by
+tests/test_detect_crop.py.
 """
 import json
 import random
@@ -259,9 +266,18 @@ def test_identity_fixture_covers_exactly_the_identity_cases():
     assert sorted(recorded) == sorted(IDENTITY_CASES)
 
 
+# The detector score the fixture was recorded with.  Pinned rather than read
+# from crop.DT_SCORE_THRESHOLD: this replay is about evidence not changing the
+# result, and the threshold was deliberately recalibrated afterwards (0.75 for
+# PP-OCRv6).  Letting the live value leak in would make every scenario that
+# has a box near the old cut-off look like an evidence regression.
+RECORDED_DT_SCORE_THRESHOLD = 0.9
+
+
 @pytest.mark.parametrize("name", sorted(IDENTITY_CASES))
 def test_pre_existing_crop_result_fields_match_the_recording_from_before_evidence(monkeypatch, name):
     expected = json.loads(IDENTITY_FIXTURE.read_text())["cases"][name]
+    monkeypatch.setattr(crop, "DT_SCORE_THRESHOLD", RECORDED_DT_SCORE_THRESHOLD)
     result = IDENTITY_CASES[name](monkeypatch)
     assert _canonical(_pre_existing_fields(result)) == _canonical(expected)
 
@@ -299,8 +315,8 @@ def test_samples_carry_each_probed_frames_boxes_whether_it_was_kept_and_its_text
         empty: ([], []),
         # its own baseline far above the subtitle's: left out of the union
         outlier: ([1.0], [(500, 700, 1400, 740)]),
-        # score 0.89 is rejected, 0.9 accepted, and text above the cutoff is out of band
-        filtered: ([0.89, 1.0, 0.97, 0.9],
+        # score 0.70 is rejected, 0.75 accepted, and text above the cutoff is out of band
+        filtered: ([0.70, 1.0, 0.97, 0.75],
                    [(300, 880, 1600, 930), (430, 980, 1470, 1030), (100, 200, 400, 260), (1600, 990, 1700, 1025)]),
     }
 

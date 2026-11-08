@@ -380,7 +380,7 @@ class OpenFolderView(QWidget):
         layout.addStretch(1)
         self.title_label = QLabel("Open an episode or a folder of episodes")
         self.title_label.setObjectName("OpenTitle")
-        self.hint_label = QLabel("or drop one anywhere on this window")
+        self.hint_label = QLabel("Or drop one anywhere on this window")
         self.hint_label.setObjectName("Note")
         self.episode_button = Button("Open episode…", "primary")
         self.episode_button.clicked.connect(self.choose_episode_requested)

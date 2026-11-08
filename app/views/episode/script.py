@@ -40,8 +40,8 @@ from app.views.episode.common import BODY_SIZE, SMALL_SIZE, font, text_label
 from app.widgets.base import Button
 
 TITLE = "SCRIPT"
-FOLLOWING = "▾ following"
-FOLLOW = "▾ follow"
+FOLLOWING = "▾ Following"
+FOLLOW = "▾ Follow"
 FLASH_MS = 1200                 # the newest line's amber flash
 FLASH_BG = "#2a2515"            # the drip's highlight (@keyframes drip, episode-view-v2.html)
 ROW_PAD_X, ROW_PAD_Y, ROW_GAP = 8, 4, 1       # mockup px

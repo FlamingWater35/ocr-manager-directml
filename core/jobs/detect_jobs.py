@@ -370,10 +370,11 @@ class CropJob:
         self.consensus = tuple((y, h) for y, h in consensus)
         self.settings = tuple(crop_settings(folder).items())
         self.use_gpu = folder.use_gpu
+        self.tier = folder.ocr_model
 
     def run(self, ctx: JobContext) -> CropJobResult | None:
         try:
-            with engine_registry.lease_detection_engine(None, self.use_gpu) as det_engine:
+            with engine_registry.lease_detection_engine(None, self.use_gpu, self.tier) as det_engine:
                 result = _crop.detect_crop(self.video_path, self.duration, det_engine,
                                            list(self.consensus), dict(self.settings), ctx.cancel_check())
         except _vad.AudioExtractionCancelled:
@@ -412,11 +413,13 @@ class BrightnessJob:
         self.hint_value = hint_value
         self.ocr_lang = folder.ocr_lang
         self.use_gpu = folder.use_gpu
+        self.tier = folder.ocr_model
 
     def run(self, ctx: JobContext) -> BrightnessJobResult | None:
         time_ranges = None if self.time_ranges is None else list(self.time_ranges)
-        with engine_registry.lease_detection_engine(None, self.use_gpu) as det_engine, \
-                engine_registry.lease_ocr_engine(self.ocr_lang, None, None, self.use_gpu) as ocr_engine:
+        with engine_registry.lease_detection_engine(None, self.use_gpu, self.tier) as det_engine, \
+                engine_registry.lease_ocr_engine(self.ocr_lang, None, None, self.use_gpu,
+                                                 self.tier) as ocr_engine:
             result = _brightness.detect_brightness(self.video_path, self.crop_box, time_ranges,
                                                    det_engine, ocr_engine, self.folder_plateau,
                                                    ctx.cancel_check())
@@ -459,11 +462,12 @@ class LinesJob:
         self.seed = int(seed)
         self.exclude = tuple(float(value) for value in exclude)
         self.use_gpu = folder.use_gpu
+        self.tier = folder.ocr_model
 
     def run(self, ctx: JobContext) -> LinesJobResult | None:
         time_ranges = None if self.time_ranges is None else list(self.time_ranges)
         speech = None if self.speech is None else [[start, end] for start, end in self.speech]
-        with engine_registry.lease_detection_engine(None, self.use_gpu) as det_engine:
+        with engine_registry.lease_detection_engine(None, self.use_gpu, self.tier) as det_engine:
             result = _lines.sample_lines(self.video_path, self.crop_box, time_ranges, speech, det_engine,
                                          seed=self.seed, exclude=list(self.exclude),
                                          cancel_check=ctx.cancel_check())
@@ -580,11 +584,13 @@ class ConfirmJob:
         self.conf_threshold = int(folder.conf_threshold)
         self.ocr_lang = folder.ocr_lang
         self.use_gpu = folder.use_gpu
+        self.tier = folder.ocr_model
 
     def run(self, ctx: JobContext) -> ConfirmJobResult | None:
         cache = _view_cache.FileViewCache(self.cache_dir, self.file, self.video_path)
         strip = cache.read_strip(self.crop_box, self.probe_time) if cache.readable else None
-        with engine_registry.lease_ocr_engine(self.ocr_lang, None, None, self.use_gpu) as ocr_engine:
+        with engine_registry.lease_ocr_engine(self.ocr_lang, None, None, self.use_gpu,
+                                              self.tier) as ocr_engine:
             result = _confirm.confirm_brightness(self.video_path, self.crop_box, self.probe_time,
                                                  self.start_value, self.conf_threshold, ocr_engine,
                                                  strip=strip, cancel_check=ctx.cancel_check())

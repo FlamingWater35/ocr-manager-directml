@@ -106,7 +106,7 @@ def _rectangle(box) -> list[tuple[int, int]]:
 def aggregate_crop_box(boxes_per_sample, frame_size, settings: dict | None = None,
                        sample_times=None) -> tuple[int, int, int, int] | None:
     """`core.detect.crop.aggregate_box` over one list of (x, y, w, h) boxes
-    per sampled frame -- the Crop tab's "⤢ fit to all N samples".
+    per sampled frame -- the Crop tab's "⤢ Fit to all N samples".
 
     `settings` mirrors the folder's detector settings and must carry the
     `bottom_half_cutoff` the detection itself used (`evidence["crop"]

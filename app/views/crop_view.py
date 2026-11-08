@@ -37,7 +37,7 @@ Evidence is a disposable cache: every `evidence["crop"]` key is read with
       (a confirmed watermark, the height ceiling, ...) nothing disagrees --
       there is nothing to disagree with -- and the panel shows the flag
       reason instead.
-    - "⤢ fit to all N samples" re-runs the detector's own aggregation over
+    - "⤢ Fit to all N samples" re-runs the detector's own aggregation over
       the kept samples' boxes with the cutoff the detection used
       (`cutoff_frac`, 0.0 after a full-frame retry), falling back to the
       folder setting when the evidence predates that field.
@@ -106,16 +106,16 @@ COMMIT_DEBOUNCE_MS = 400          # one command per gesture: nudges and spin-box
 DEFAULT_BRIGHTNESS = 230          # core.config.Config's default, for a file with no value yet
 NUDGE_SMALL, NUDGE_LARGE = 1, 10  # video pixels, plain and with Shift
 NUDGE_NOTE = "Arrow keys nudge 1 px, ⇧ arrows nudge 10. A corner moves the opposite side with it, mirrored."
-# "apply this crop to all files": the file's box, as MANUAL, for every file not
+# "Apply this crop to all files": the file's box, as MANUAL, for every file not
 # skipped (controller.apply_crop_to_all), after one question.
-APPLY_ALL_TEXT = "apply this crop to all files"
+APPLY_ALL_TEXT = "Apply this crop to all files"
 APPLY_ALL_CROP_TEXT = ("Set the crop {x}, {y} · {width} × {height} on all {n} files?\n\n"
                        "Each file's own crop is replaced; a file of another size gets the box cut "
                        "to fit and is flagged. Skipped files are left alone.")
 COVERED_NOTE = "The amber box already covers it. Click the warned sample to inspect."
 OUTSIDE_NOTE = "This sample falls outside the box."
-ARROW_HINT = "◀ ▶ arrow keys"
-DETECTED_TAG = "dashed grey = the latest detection"
+ARROW_HINT = "◀ ▶ Arrow keys"
+DETECTED_TAG = "Dashed grey = the latest detection"
 # The keyboard-focus ring the canvas and the filmstrip paint themselves: a
 # widget with a stylesheet gets no focus rectangle from Qt, and the arrows
 # mean different things on the two surfaces (nudge the box / step samples).
@@ -131,7 +131,7 @@ CANVAS_MIN_HEIGHT = tokens.px(120)  # ... which is also `heightForWidth`'s floor
 STRIP_MARGIN_X = tokens.px(6)     # the filmstrip's clearance for its focus ring
 STRIP_MARGIN_TOP = tokens.px(9)
 STRIP_MARGIN_BOTTOM = tokens.px(4)
-STRIP_GAP = tokens.px(6)          # between the label, the thumbnails and "more ▸"
+STRIP_GAP = tokens.px(6)          # between the label, the thumbnails and "More ▸"
 PANEL_ROW_SPACING = tokens.px(5)  # between two inspector rows
 PANEL_SECTION_GAP = tokens.px(4)  # above the "Evidence" header
 SPIN_PADDING_X = tokens.px(8)     # the spin row's own padding, as .kv has
@@ -139,7 +139,7 @@ SPIN_PADDING_Y = tokens.px(3)
 SPIN_GAP = tokens.px(6)
 SPIN_WIDTH = tokens.px(64)        # one spin box
 TOOLBAR_GAP = tokens.px(4)        # between the three overlay toggles ...
-TOOLBAR_SPACING = tokens.px(6)    # ... and before "⤢ fit to all N samples"
+TOOLBAR_SPACING = tokens.px(6)    # ... and before "⤢ Fit to all N samples"
 TIMELINE_GAP = tokens.px(8)       # between the filmstrip and the compact timeline
 # The detector settings "fit to all samples" re-aggregates with; the cutoff is
 # added from the evidence, never from the folder alone (see the module docstring).
@@ -331,7 +331,7 @@ class CropCanvas(QWidget):
     GRID_ALPHA = 0.45
     TAG_MARGIN = tokens.px(8)
     TAG_PAD_X, TAG_PAD_Y = tokens.px(6), tokens.px(2)
-    PLACEHOLDER_TEXT = "loading frame…"
+    PLACEHOLDER_TEXT = "Loading frame…"
 
     box_changed = pyqtSignal()
     commit_requested = pyqtSignal(tuple)       # the box to store
@@ -1011,7 +1011,7 @@ class SampleThumbnail(QWidget):
 
 
 class SampleStrip(QWidget):
-    """`.strip`: "samples", up to eight thumbnails, "more ▸" to page.
+    """`.strip`: "samples", up to eight thumbnails, "More ▸" to page.
 
     The page is eight where eight fit and fewer where they do not
     (`fits()`). A thumbnail is a fixed 64x36 of the mockup's -- at the UI
@@ -1019,7 +1019,7 @@ class SampleStrip(QWidget):
     hint is more than the stage has at 1440 px wide. A row of fixed-size
     children would make that a HARD minimum: the window could not be opened
     narrower, whatever the screen. So the row shows the thumbnails its width
-    can hold at full size and "more ▸" reaches the rest, which is the
+    can hold at full size and "More ▸" reaches the rest, which is the
     affordance the mockup already has for the samples past the eighth.
     """
 
@@ -1043,7 +1043,7 @@ class SampleStrip(QWidget):
         layout = QHBoxLayout(self)
         # Clearance on the sides and the bottom for the focus ring, which the
         # row paints on its own edge (`_paint_focus_ring`) -- at the mockup's
-        # flush margins the ring cut through the "◀ ▶ arrow keys" hint.
+        # flush margins the ring cut through the "◀ ▶ Arrow keys" hint.
         layout.setContentsMargins(STRIP_MARGIN_X, STRIP_MARGIN_TOP,
                                   STRIP_MARGIN_X, STRIP_MARGIN_BOTTOM)
         layout.setSpacing(STRIP_GAP)
@@ -1066,7 +1066,7 @@ class SampleStrip(QWidget):
             thumb.clicked.connect(self._on_clicked)
             layout.addWidget(thumb)
             self._thumbs.append(thumb)
-        self.more_button = Button("more ▸", "ghost", small=True)
+        self.more_button = Button("More ▸", "ghost", small=True)
         self.more_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.more_button.clicked.connect(self.next_page)
         layout.addWidget(self.more_button)
@@ -1081,9 +1081,9 @@ class SampleStrip(QWidget):
 
     def _furniture_width(self) -> int:
         """Everything on the row that is not a thumbnail: the margins, the
-        "samples" label, "more ▸", the arrow hint and the gaps between them.
+        "samples" label, "More ▸", the arrow hint and the gaps between them.
 
-        "more ▸" is counted whether or not it is on screen: the number that
+        "More ▸" is counted whether or not it is on screen: the number that
         fits is what decides whether there IS a next page, so measuring the
         button only when it shows would make the two chase each other -- and
         the row would jump by a thumbnail as paging appeared."""
@@ -1136,7 +1136,7 @@ class SampleStrip(QWidget):
         self._focus_ring = self._paint_focus_ring()
 
     def _paint_focus_ring(self) -> bool:
-        """The whole row, including the "◀ ▶ arrow keys" hint on its right:
+        """The whole row, including the "◀ ▶ Arrow keys" hint on its right:
         those are the keys the ring says are live. Around the thumbnails
         alone it would have nothing to enclose on a file whose detection
         produced no samples -- the row still takes the focus."""
@@ -1192,7 +1192,7 @@ class SampleStrip(QWidget):
         self._warned = set(warned)
         self._images = dict(images)
         # The page is never re-derived here: a refresh must not undo
-        # "more ▸", and frame_ready arrives in bursts. Picking a sample
+        # "More ▸", and frame_ready arrives in bursts. Picking a sample
         # pages to it through `reveal`.
         self._page = min(max(0, self._page), self.pages() - 1)
         self._relayout()
@@ -1562,7 +1562,7 @@ class CropTab:
         for button in (self.envelope_button, self.masked_button, self.grid_button):
             bar.addWidget(button)
         bar.addSpacing(TOOLBAR_SPACING)
-        self.fit_button = Button("⤢ fit to all 0 samples", small=True)
+        self.fit_button = Button("⤢ Fit to all 0 samples", small=True)
         self.fit_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.fit_button.clicked.connect(self.fit_to_samples)
         bar.addWidget(self.fit_button)
@@ -1608,7 +1608,7 @@ class CropTab:
         self.panel.box_edited.connect(self._commit_box)
         self.panel.sample_requested.connect(self.select)
         self.panel.apply_all.connect(self._apply_to_all)
-        # "apply this crop to all files" asks first; a test replaces this to answer.
+        # "Apply this crop to all files" asks first; a test replaces this to answer.
         self.confirm: Callable[[str, str], bool] = lambda title, text: ask_yes_no(self._page, title, text)
         controller.frame_ready.connect(self._on_frame_ready)
 
@@ -1627,7 +1627,7 @@ class CropTab:
         return self.panel
 
     def toolbar(self) -> QWidget:
-        """envelope / masked / grid and "⤢ fit to all N samples", which the
+        """envelope / masked / grid and "⤢ Fit to all N samples", which the
         Stage mounts in the stage head (ruling B3)."""
         return self._toolbar
 
@@ -1932,7 +1932,7 @@ class CropTab:
 
     def _sync_toolbar(self) -> None:
         kept = sum(1 for sample in self._samples if sample.kept)
-        self.fit_button.setText(f"⤢ fit to all {kept} samples")
+        self.fit_button.setText(f"⤢ Fit to all {kept} samples")
         self.fit_button.setEnabled(kept > 0)
 
     def _sync_panel(self, entry, evidence) -> None:

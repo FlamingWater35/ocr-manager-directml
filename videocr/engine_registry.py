@@ -59,22 +59,22 @@ _idle_ocr_engines: dict[tuple, list] = {}
 _idle_detection_engines: dict[tuple, list] = {}
 
 
-def _build_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu):
+def _build_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu, tier=None):
     """Builder the pool calls to construct a full OCR engine.
 
     A thin wrapper around `videocr.utils.create_ocr_engine` so tests can
     monkeypatch construction without touching the engine itself.
     """
-    return utils.create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu)
+    return utils.create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu, tier)
 
 
-def _build_detection_engine(det_model_dir, use_gpu):
+def _build_detection_engine(det_model_dir, use_gpu, tier=None):
     """Builder the pool calls to construct a detection-only engine.
 
     A thin wrapper around `videocr.utils.create_detection_engine` so tests
     can monkeypatch construction without touching the engine itself.
     """
-    return utils.create_detection_engine(det_model_dir, use_gpu)
+    return utils.create_detection_engine(det_model_dir, use_gpu, tier)
 
 
 def _checkout(idle: dict, key: tuple, build):
@@ -109,13 +109,20 @@ def _checkin(idle: dict, key: tuple, engine, token) -> None:
 
 
 @contextmanager
-def lease_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu):
+def lease_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu, tier=None):
     """Exclusive use of a full OCR engine for this argument tuple, for the
-    duration of the `with` block. See the module docstring."""
-    key = (lang, det_model_dir, rec_model_dir, use_gpu)
+    duration of the `with` block. See the module docstring.
+
+    The model size is part of the key: two folders set to different sizes need
+    different weights, so they must not share a pooled engine.
+    """
+    from . import ocr_engine
+
+    tier = ocr_engine.normalise_tier(tier)
+    key = (lang, det_model_dir, rec_model_dir, use_gpu, tier)
     engine, token = _checkout(
         _idle_ocr_engines, key,
-        lambda: _build_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu))
+        lambda: _build_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu, tier))
     try:
         yield engine
     finally:
@@ -123,13 +130,16 @@ def lease_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu):
 
 
 @contextmanager
-def lease_detection_engine(det_model_dir, use_gpu):
+def lease_detection_engine(det_model_dir, use_gpu, tier=None):
     """Exclusive use of a detection-only engine for this argument tuple, for
     the duration of the `with` block. See the module docstring."""
-    key = (det_model_dir, use_gpu)
+    from . import ocr_engine
+
+    tier = ocr_engine.normalise_tier(tier)
+    key = (det_model_dir, use_gpu, tier)
     engine, token = _checkout(
         _idle_detection_engines, key,
-        lambda: _build_detection_engine(det_model_dir, use_gpu))
+        lambda: _build_detection_engine(det_model_dir, use_gpu, tier))
     try:
         yield engine
     finally:

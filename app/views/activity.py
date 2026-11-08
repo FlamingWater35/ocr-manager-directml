@@ -7,7 +7,7 @@ doing, instead of modal progress dialogs.
   indeterminate (animated) and no percent is shown.
 - Trailing dim text: the latest finished jobs, "· {kind} done {n} s ago", up
   to two, one per kind.
-- "pause auto-pilot" / "resume auto-pilot".
+- "Pause auto-pilot" / "Resume auto-pilot".
 """
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ class ActivityStrip(QWidget):
         self.recent_label.setObjectName("ActivityRecent")
         for label in (self.text_label, self.recent_label):
             label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.pause_button = Button("pause auto-pilot", "ghost", small=True)
+        self.pause_button = Button("Pause auto-pilot", "ghost", small=True)
         self.pause_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.pause_button.clicked.connect(self._toggle_pause)
         layout.addWidget(self.dot)
@@ -125,7 +125,7 @@ class ActivityStrip(QWidget):
         else:
             self._ago_timer.stop()
         self.pause_button.setVisible(controller.project is not None)
-        self.pause_button.setText("resume auto-pilot" if snapshot.paused else "pause auto-pilot")
+        self.pause_button.setText("Resume auto-pilot" if snapshot.paused else "Pause auto-pilot")
 
     def _toggle_pause(self) -> None:
         if self._controller.activity().paused:

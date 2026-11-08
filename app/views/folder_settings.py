@@ -65,6 +65,7 @@ from app.views.folder_settings_fields import (
     MASK_KEY,
     MASK_NOTE,
     SECTIONS,
+    ChoiceCombo,
     DoubleSpinBox,
     Field,
     LanguageCombo,
@@ -246,6 +247,14 @@ class FolderSettingsSheet(QWidget):
             combo.lineEdit().editingFinished.connect(lambda: QTimer.singleShot(0, self._drop_language_text))
             combo.activated.connect(self._on_language_activated)
             combo.completer().activated[str].connect(self._on_language_suggestion)
+            return combo
+        if field.kind == "choice":
+            combo = ChoiceCombo()
+            for value, text in field.choices:
+                combo.addItem(text, value)
+            combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            combo.setFixedWidth(tokens.px(LANGUAGE_WIDTH))
+            combo.activated.connect(lambda index, f=field: self._on_choice_picked(f, index))
             return combo
         spin = DoubleSpinBox() if field.decimals else SpinBox()
         if field.decimals:
@@ -498,6 +507,18 @@ class FolderSettingsSheet(QWidget):
         else:
             self._sync_language(project.folder.ocr_lang)
 
+    def _on_choice_picked(self, field: Field, index: int) -> None:
+        """A fixed-list pick commits immediately: there is nothing to type, so
+        there is no half-made edit to wait on."""
+        project = self._controller.project
+        if project is None:
+            return
+        value = self._editors[field.name].itemData(index)
+        if value and value != getattr(project.folder, field.name):
+            self._controller.update_folder(**{field.name: value})
+        else:
+            self._sync()
+
     def _flush_pending(self) -> None:
         for name in list(self._pending):
             if name == "ocr_lang":
@@ -534,6 +555,8 @@ class FolderSettingsSheet(QWidget):
                 editor.setChecked(bool(value))
             elif field.kind == "language":
                 self._sync_language(value)
+            elif field.kind == "choice":
+                self._sync_choice(editor, value)
             else:
                 shown = field.to_editor(value)
                 editor.blockSignals(True)
@@ -561,6 +584,16 @@ class FolderSettingsSheet(QWidget):
         for item in codes:
             combo.addItem(language_label(item), item)
         combo.setCurrentIndex(codes.index(code))
+        combo.blockSignals(False)
+
+    def _sync_choice(self, combo: QComboBox, value: str) -> None:
+        """Show the stored value; an unknown one (a project from a newer build)
+        selects nothing rather than silently claiming to be the default."""
+        index = combo.findData(value)
+        if index == combo.currentIndex():
+            return
+        combo.blockSignals(True)
+        combo.setCurrentIndex(index)
         combo.blockSignals(False)
 
     def _sync_scope(self, *_args) -> None:

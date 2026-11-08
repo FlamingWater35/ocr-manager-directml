@@ -83,8 +83,24 @@ CROP_MIN_HEIGHT_FRACTION = 0.05
 BOTTOM_HALF_CUTOFF = 0.55
 MAX_CROP_HEIGHT_FRAC = 0.25
 
-# Detection score threshold - real text typically scores ~0.97.
-DT_SCORE_THRESHOLD = 0.9
+# Detection score threshold, calibrated for PP-OCRv6's detector.
+#
+# This is NOT the number PaddleOCR needed. That engine's DB output scored real
+# text at ~0.97, so 0.9 was a cheap filter. PP-OCRv6 scores the same text
+# lower and over a wider range: measured on 1080p frames with burned-in
+# subtitles (three font sizes, 18 readings), every true reading landed between
+# 0.80 and 0.83, while frames with no subtitle in the band produced no box at
+# all. At 0.9 the detector accepted *nothing*, which is why auto crop detection
+# reported "no text found" on files whose subtitles were plainly visible.
+#
+# 0.75 is the measured compromise. End-to-end on four synthetic sources
+# (subtitled and plain, on a soft background and on busy noise): 0.75 finds the
+# subtitle box on both subtitled sources and rejects both plain ones, while 0.9
+# finds nothing anywhere and 0.5-0.6 starts accepting boxes on the busy
+# no-subtitle source. The geometry rules below (centre in band, height ceiling,
+# width fraction) do the rest of the rejection; this threshold only has to keep
+# the obviously-empty frames out.
+DT_SCORE_THRESHOLD = 0.75
 
 def _label_max_duration_default() -> float:
     """Read core.project.model.FolderSettings' own label_max_duration default
@@ -1259,6 +1275,8 @@ def _run_round(video_path: str, times: list[float], det_engine, band_frac: float
         # (Task 2b requirement 4, see CropResult.sample_pts).
         sample_pts.extend(t for t, _frame in pairs)
         if not pairs:
+            logger.debug("crop probe batch at %s: %d time(s) requested, no frames returned",
+                         [round(t, 2) for t in chunk], len(chunk))
             continue
         orig_w, orig_h, crop_w, crop_h, crop_x, crop_y, out_w, out_h = geometry
         full_geometry = (orig_w, orig_h, crop_w, crop_h, crop_x, crop_y, out_w, out_h)
@@ -1266,6 +1284,7 @@ def _run_round(video_path: str, times: list[float], det_engine, band_frac: float
         frames = [frame for _, frame in pairs]
         results = list(det_engine.predict(frames))
 
+        batch_hits = 0
         for (t, _frame), item in zip(pairs, results):
             scores = item.get("dt_scores")
             if scores is None:
@@ -1278,6 +1297,13 @@ def _run_round(video_path: str, times: list[float], det_engine, band_frac: float
                 for poly, score in zip(polys, scores)
                 if float(score) >= DT_SCORE_THRESHOLD
             ]
+            batch_hits += bool(accepted)
+            # The single most useful line for "why did auto-crop find
+            # nothing": what the detector scored on each frame, and how many
+            # boxes cleared DT_SCORE_THRESHOLD.
+            logger.debug("crop probe at %.3fs: %d box(es) from the detector, scores %s, "
+                         "%d accepted at >= %.2f", t, len(scores),
+                         [round(float(s), 4) for s in scores], len(accepted), DT_SCORE_THRESHOLD)
             polys_per_frame.append(accepted)
             frame_times.append(t)
 
@@ -1326,10 +1352,14 @@ def _run_round(video_path: str, times: list[float], det_engine, band_frac: float
                 required_stable_rounds = min(required_stable_rounds, CONSENSUS_STABLE_ROUNDS)
 
         if current_union is not None and stable_rounds >= required_stable_rounds:
+            logger.debug("crop probing stopped after %d probe(s): the union has been stable "
+                         "for %d batch(es) at %r", attempted, stable_rounds, current_union)
             break
 
     extents = _per_frame_extents(polys_per_frame, frame_h, cutoff_frac)
     raw_hits = sum(e is not None for e in extents)
+    logger.debug("crop probing done: %d frame(s) analysed, %d with in-band text, union %r",
+                 len(polys_per_frame), raw_hits, _bounding_union(extents))
     return polys_per_frame, sample_pts, raw_hits, frame_times
 
 
@@ -1488,6 +1518,11 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
     orig_w, orig_h, transfer = _probe_source(video_path)
     known_dims = (orig_w, orig_h)
     frame_size = (orig_w, orig_h)
+    logger.debug("crop detection on %s: %dx%d, %.2fs, transfer %s, cutoff %.2f, "
+                 "score threshold %.2f, band %.2f, target height %d",
+                 video_path, orig_w, orig_h, duration_sec, transfer,
+                 float((settings or {}).get("bottom_half_cutoff", BOTTOM_HALF_CUTOFF)),
+                 DT_SCORE_THRESHOLD, BOTTOM_HALF_CUTOFF, TARGET_HEIGHT)
 
     sample_pts: list[float] = []
     flagged: str | None = None
@@ -1505,6 +1540,11 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
     if not speech_probing_available:
         times = _uniform_probe_times(duration_sec)
         flagged = _compose_flag(flagged, FLAG_NO_SPEECH)
+        logger.debug("crop detection on %s: no speech found, probing %d uniform time(s)",
+                     video_path, len(times))
+    else:
+        logger.debug("crop detection on %s: %d speech time(s) to probe: %s",
+                     video_path, len(times), [round(t, 2) for t in times])
 
     used_full_frame_retry = False
     # Every round's (sample_pts, polys_per_frame, frame_times, full-frame
@@ -1532,6 +1572,8 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
         flagged = _compose_flag(flagged, FLAG_CANCELLED)
 
     if raw_hits == 0 and speech_probing_available and not cancelled:
+        logger.debug("crop detection on %s: nothing in the speech samples, retrying on "
+                     "uniform times", video_path)
         uniform_times = _uniform_probe_times(duration_sec)
         polys_per_frame, used, raw_hits, frame_times = _run_round(
             video_path, uniform_times, det_engine, band_frac=BOTTOM_HALF_CUTOFF,
@@ -1547,6 +1589,8 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
             flagged = _compose_flag(flagged, FLAG_CANCELLED)
 
     if raw_hits == 0 and not cancelled:
+        logger.debug("crop detection on %s: still nothing, retrying on the whole frame "
+                     "(the subtitle may sit above the bottom half)", video_path)
         retry_times = _uniform_probe_times(duration_sec) if not sample_pts else sample_pts
         # Reuse the already-attempted timestamps for the full-frame retry
         # rather than probing new ones -- we already know these timestamps
@@ -1647,6 +1691,10 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
     samples = _crop_samples(
         rounds, orig_h, float((settings or {}).get("bottom_half_cutoff", BOTTOM_HALF_CUTOFF)), kept_idx,
     )
+
+    logger.info("crop detection on %s: box %r from %d/%d probe(s) (envelope %r, "
+                "watermark %s%s)", video_path, box, agreed, len(sample_pts), envelope,
+                watermark_status, "" if not flagged else f", flagged {flagged!r}")
 
     return CropResult(
         box=box,

@@ -211,23 +211,27 @@ def device_kwargs(device: str) -> dict:
     return {"device": device}
 
 
-def create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu):
+def create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu, tier=None):
     """Create a full OCR engine (detection + recognition).
 
     Delegates to `videocr.ocr_engine`, which wraps RapidOCR on ONNX Runtime
     (DirectML when available). `det_model_dir`/`rec_model_dir` are accepted for
     call-site compatibility and ignored: RapidOCR resolves its own models.
+    `tier` is the PP-OCRv6 size ("tiny"/"small"/"medium"); None means the
+    default.
     """
     from . import ocr_engine
 
-    return ocr_engine.create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu)
+    return ocr_engine.create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu,
+                                        tier=ocr_engine.normalise_tier(tier))
 
 
-def create_detection_engine(det_model_dir, use_gpu):
+def create_detection_engine(det_model_dir, use_gpu, tier=None):
     """Create a detection-only engine for label scanning."""
     from . import ocr_engine
 
-    return ocr_engine.create_detection_engine(det_model_dir, use_gpu)
+    return ocr_engine.create_detection_engine(det_model_dir, use_gpu,
+                                              tier=ocr_engine.normalise_tier(tier))
 
 
 def format_ass_header(play_res_x: int, play_res_y: int, include_label_style: bool = False) -> str:

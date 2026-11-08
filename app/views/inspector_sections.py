@@ -6,7 +6,7 @@
   Its note carries the series-median brightness sentence.
 - `ProofSection`: "PROOF · REAL OCR OF 30 S" (ruling C4) -- "running on
   MM:SS-MM:SS…" while the proof runs, then up to PROOF_LINES_SHOWN "MM:SS
-  text" lines ("show all" reveals the rest), and "{n} lines · took {s} s".
+  text" lines ("Show all" reveals the rest), and "{n} lines · took {s} s".
   A result whose settings have since changed keeps its lines and says so.
 - `ChangeOffer`: "IF YOU CHANGE SOMETHING HERE" -- the hint re-detect offer
   (ruling C3), one button per kind the user edited in this session.
@@ -32,7 +32,7 @@ from app.state_text import (
 from app.theme import tokens
 from app.widgets.base import Button, ConfBar, KvRow, SectionHeader, repolish
 
-PROOF_LINES_SHOWN = 6             # more recognised lines than this hide behind "show all"
+PROOF_LINES_SHOWN = 6             # more recognised lines than this hide behind "Show all"
 PULSE_MS = 1400
 PULSE_LOW_OPACITY = 0.35
 
@@ -40,19 +40,19 @@ SECTION_MARGIN_X = 12             # `.sec` padding, left and right (mockup px, s
 BUTTON_SM_CHROME = 18             # `.btn.sm`: 8 px padding and a 1 px border each side (mockup px)
 
 VALUES_NOTE = "Values belong to this file."
-SHOW_ALL_TEXT = "show all"
-STALE_TEXT = "settings changed — run again"
+SHOW_ALL_TEXT = "Show all"
+STALE_TEXT = "Settings changed — run again"
 NO_LINES_TEXT = "No subtitles recognised in this window — check crop and brightness."
 # "Apply to all files" (the Crop and Brightness panels): the one question it asks.
 APPLY_ALL_TITLE = "Apply to all files"
-RUNNING_TEXT = "running on {window}…"
+RUNNING_TEXT = "Running on {window}…"
 RUNNING_UNKNOWN_TEXT = "running…"            # defensive: run_proof refuses an unknown duration
-HINT_TEXT = "↻ re-detect the other {count} using this {what} as a hint"
+HINT_TEXT = "↻ Re-detect the other {count} using this {what} as a hint"
 # Count 0: the offer is still shown, disabled, so the user can see there is
 # nothing else to re-detect -- but "the other 0" reads as a template with a
 # hole in it, and there is no ↻ to press.
 HINT_NONE_TEXT = "no other file to re-detect with this {what}"
-REDETECTING_TEXT = "re-detecting {count} files…"
+REDETECTING_TEXT = "Re-detecting {count} files…"
 HINT_KINDS = ("crop", "brightness")          # the two kinds ruling C3 offers, in inspector order
 
 
@@ -178,7 +178,7 @@ class DetectedSection(Section):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.redetect_button = small_button("↻ re-detect", "ghost")
+        self.redetect_button = small_button("↻ Re-detect", "ghost")
         self.redetect_button.clicked.connect(self.redetect_requested)
         header = SectionHeader("Detected", trailing=self.redetect_button)
         self.body.addWidget(header)
@@ -414,7 +414,7 @@ class ChangeOffer(Section):
             self.hint_buttons[what] = button
             self.body.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
             self.body.addSpacing(tokens.px(6))
-        self.this_file_only_button = small_button("apply to this file only", "ghost")
+        self.this_file_only_button = small_button("Apply to this file only", "ghost")
         self.this_file_only_button.clicked.connect(self.dismissed)
         self.body.addWidget(self.this_file_only_button, 0, Qt.AlignmentFlag.AlignLeft)
         self.body.addSpacing(tokens.px(6))

@@ -41,7 +41,7 @@ def read_ranges(entry, duration: float) -> tuple[list[tuple[float, float]], list
     still hands OCR exactly what is stored.
 
     Empty and empty means the whole file is kept: `time_ranges` None (never
-    set) or an empty MANUAL list ("use whole file"). With no duration yet
+    set) or an empty MANUAL list ("Use whole file"). With no duration yet
     nothing can be placed and nothing is blamed -- see NO_DURATION_TEXT."""
     ranges = getattr(entry, "time_ranges", None)
     if entry is None or ranges is None or not ranges.ranges or duration <= 0:

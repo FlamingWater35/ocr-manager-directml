@@ -53,7 +53,7 @@ DURATION = 1628.0
 SAMPLE_TIME = 578.0                 # a 30 s proof window of 09:38–10:08
 WINDOW_TEXT = "09:38–10:08"
 WAIT_MS = 5000
-WHOLE_FILE = object()               # entry(ranges=...) default: a MANUAL "use whole file" choice
+WHOLE_FILE = object()               # entry(ranges=...) default: a MANUAL "Use whole file" choice
 LINES = [(578.0, 580.0, "你竟掌握了鲲鹏道法"), (581.0, 583.0, "我早已不是当年的我"),
          (584.0, 586.0, "今日便让你见识见识"), (588.0, 590.0, "纵使千难万险"),
          (591.0, 593.0, "我也要闯一闯"), (594.0, 596.0, "这条路没有回头"),
@@ -208,7 +208,7 @@ def test_the_button_and_the_t_key_run_the_proof_and_are_disabled_while_it_runs(w
     inspector.proof_button.click()
     assert proofs.calls == [(name,)]
     assert fake_runner.last("proof", name)
-    assert inspector.proof_status.text() == f"running on {WINDOW_TEXT}…"
+    assert inspector.proof_status.text() == f"Running on {WINDOW_TEXT}…"
     assert not inspector.proof_status.isHidden()
     assert not inspector.proof_button.isEnabled()
     assert not window.proof_action.isEnabled()
@@ -222,7 +222,7 @@ def test_the_button_and_the_t_key_run_the_proof_and_are_disabled_while_it_runs(w
     assert window.proof_action.isEnabled()
     QTest.keyClick(window.queue, Qt.Key.Key_T)           # the T key does what the button does
     assert proofs.calls == [(name,), (name,)]
-    assert inspector.proof_status.text() == f"running on {WINDOW_TEXT}…"
+    assert inspector.proof_status.text() == f"Running on {WINDOW_TEXT}…"
 
 
 def test_the_queue_menu_does_not_queue_a_second_proof_of_a_running_file(window, fake_runner):
@@ -367,7 +367,7 @@ def test_an_edit_makes_the_stored_proof_stale_and_keeps_its_lines(window, fake_r
     else:
         controller.set_time_ranges(name, [("02:33", "23:05")])
     assert inspector.proof_note.text() == STALE_TEXT
-    assert inspector.proof_note.text() == "settings changed — run again"
+    assert inspector.proof_note.text() == "Settings changed — run again"
     assert inspector.proof_note.property("tone") == ""
     assert inspector.proof_texts() == LINE_TEXTS[:3]     # the old lines stay visible
 
@@ -389,7 +389,7 @@ def test_an_edit_while_the_proof_runs_marks_its_result_stale(window, fake_runner
     name = NAMES[0]
     inspector.proof_button.click()
     controller.set_brightness(name, 214)                 # the job already holds the old settings
-    assert inspector.proof_status.text() == f"running on {WINDOW_TEXT}…"
+    assert inspector.proof_status.text() == f"Running on {WINDOW_TEXT}…"
     finish_proof(window, fake_runner, name, LINES[:3])
     assert inspector.proof_note.text() == STALE_TEXT
     assert inspector.proof_texts() == LINE_TEXTS[:3]
@@ -410,13 +410,13 @@ def test_the_offer_appears_only_after_a_manual_edit_with_one_button_per_kind(win
     controller.set_crop(name, (290, 780, 1340, 60))
     assert not inspector.offer_section.isHidden()
     assert not inspector.hint_buttons["crop"].isHidden()
-    assert hint_text(4, "crop") == "↻ re-detect the other 4 using this crop as a hint"
+    assert hint_text(4, "crop") == "↻ Re-detect the other 4 using this crop as a hint"
     assert unwrapped(inspector.hint_buttons["crop"]) == hint_text(4, "crop")
     assert inspector.hint_buttons["brightness"].isHidden()
 
     controller.set_brightness(name, 214)
     assert not inspector.hint_buttons["brightness"].isHidden()
-    assert hint_text(4, "brightness") == "↻ re-detect the other 4 using this brightness as a hint"
+    assert hint_text(4, "brightness") == "↻ Re-detect the other 4 using this brightness as a hint"
     assert unwrapped(inspector.hint_buttons["brightness"]) == hint_text(4, "brightness")
 
     inspector.hint_buttons["crop"].click()
@@ -518,7 +518,7 @@ def test_apply_to_this_file_only_hides_the_offer(window):
     hints = Calls(controller, "redetect_others_with_hint")
     controller.set_crop(name, (290, 780, 1340, 60))
     controller.set_brightness(name, 214)
-    assert inspector.this_file_only_button.text() == "apply to this file only"
+    assert inspector.this_file_only_button.text() == "Apply to this file only"
 
     inspector.this_file_only_button.click()
     assert hints.calls == []
@@ -539,11 +539,11 @@ def test_the_re_detecting_line_follows_the_jobs(window, fake_runner):
     assert targets == NAMES[1:]
 
     inspector.hint_buttons["crop"].click()
-    assert inspector.offer_status.text() == "re-detecting 4 files…"
+    assert inspector.offer_status.text() == "Re-detecting 4 files…"
     assert not inspector.offer_status.isHidden()
     assert not inspector.offer_section.isHidden()
     controller.drain_events()                            # the jobs are queued, none has started
-    assert inspector.offer_status.text() == "re-detecting 4 files…"
+    assert inspector.offer_status.text() == "Re-detecting 4 files…"
 
     for target in targets[:-1]:
         submission = fake_runner.last("crop", target)
@@ -573,7 +573,7 @@ def test_a_brightness_hint_waiting_for_the_ranges_analysis_keeps_the_line(make_w
     assert targets == NAMES[1:]
     inspector.hint_buttons["brightness"].click()
     assert fake_runner.of_kind("brightness") == []       # nothing submitted: the jobs wait
-    assert inspector.offer_status.text() == "re-detecting 4 files…"
+    assert inspector.offer_status.text() == "Re-detecting 4 files…"
     controller.drain_events()
     assert not inspector.offer_status.isHidden()
 
@@ -603,7 +603,7 @@ def test_the_re_detecting_line_survives_a_failed_job(window, fake_runner):
     controller.set_brightness(name, 214)
     targets = controller.hint_targets(name, "brightness")
     inspector.hint_buttons["brightness"].click()
-    assert inspector.offer_status.text() == f"re-detecting {len(targets)} files…"
+    assert inspector.offer_status.text() == f"Re-detecting {len(targets)} files…"
     controller.drain_events()
 
     for target in targets[:-1]:
@@ -655,14 +655,14 @@ def test_a_vanished_target_leaves_no_trace_and_the_rest_hold_the_line(window, fa
     targets = controller.hint_targets(name, "crop")
     assert victim in targets
     inspector.hint_buttons["crop"].click()
-    assert inspector.offer_status.text() == f"re-detecting {len(targets)} files…"
+    assert inspector.offer_status.text() == f"Re-detecting {len(targets)} files…"
 
     vanish(controller, victim)
 
     for book in (inspector._seen, inspector._edited, inspector._proof_keys, inspector._stale_proofs):
         assert victim not in book
     assert all(victim not in files for files in inspector._redetecting.values())
-    assert inspector.offer_status.text() == f"re-detecting {len(targets) - 1} files…"
+    assert inspector.offer_status.text() == f"Re-detecting {len(targets) - 1} files…"
 
     for target in [name for name in targets if name != victim]:
         submission = fake_runner.last("crop", target)

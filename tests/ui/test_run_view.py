@@ -613,8 +613,8 @@ def test_queued_files_offer_a_higher_parallel_that_reaches_the_run_job(make_wind
     deliver(window)
 
     assert view.hint_label.text() == "3 files queued ·"
-    assert view.raise_button.text() == "raise to 4"
-    assert view.hint_text() == "3 files queued · raise to 4"
+    assert view.raise_button.text() == "Raise to 4"
+    assert view.hint_text() == "3 files queued · Raise to 4"
     assert "not started yet" in view.raise_button.toolTip()
     updates = Recorder(controller, "update_folder")
     view.raise_button.click()
@@ -630,7 +630,7 @@ def test_queued_files_offer_a_higher_parallel_that_reaches_the_run_job(make_wind
     fake_runner.emit(run, "run_file_started", file="ep03.mkv")
     fake_runner.emit(run, "run_file_started", file="ep04.mkv")
     deliver(window)
-    assert view.hint_text() == "1 file queued · raise to 6"     # singular, and two above the folder's 4
+    assert view.hint_text() == "1 file queued · Raise to 6"     # singular, and two above the folder's 4
 
 
 def test_no_queued_hint_at_the_parallel_cap(make_window, tmp_project, fake_runner):

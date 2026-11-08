@@ -347,6 +347,9 @@ class FFmpegCapture:
         self._width = self._info.width
         self._height = self._info.height
         self._frame_count = self._info.frame_count
+        logger.debug("%s: %dx%d, %s fps, %s frames, start %.3fs, pix_fmt %s, transfer %s",
+                     self.path, self._width, self._height, self._fps, self._frame_count,
+                     self._info.start_time, self._info.pix_fmt, self._info.transfer)
 
         if (self._decode_target_height is not None
                 and self._height > self._decode_target_height):
@@ -358,6 +361,9 @@ class FFmpegCapture:
             self._scale_factor = 1.0
             self._output_width = self._width
             self._output_height = self._height
+        logger.debug("%s: decoding at %dx%d (scale %.4f, requested height %s)",
+                     self.path, self._output_width, self._output_height, self._scale_factor,
+                     self._decode_target_height)
 
         self._pos = 0
         self._read_started = False
@@ -460,6 +466,10 @@ class FFmpegCapture:
         self._crop_scaled_size = (px1 - px0, py1 - py0)
         self._crop_slice = (y - py0, y - py0 + h, x - px0, x - px0 + w)
         self._crop_graph_active = True
+        logger.debug("%s: crop %dx%d at (%d,%d) in output space -> native %dx%d at (%d,%d), "
+                     "scaled to %dx%d, slice %r",
+                     self.path, w, h, x, y, n_w, n_h, n_x0, n_y0,
+                     self._crop_scaled_size[0], self._crop_scaled_size[1], self._crop_slice)
 
     # -- geometry ----------------------------------------------------------
 
@@ -516,6 +526,8 @@ class FFmpegCapture:
                 "-fps_mode", "passthrough", "-an", "-sn", "-dn",
                 "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
 
+        logger.debug("%s: starting ffmpeg at %.3fs (hwaccel=%s, chain %r)",
+                     self.path, seek_seconds, self.use_gpu, self._filter_chain())
         self._proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             bufsize=max(1, self._frame_size()) * 4,
@@ -879,6 +891,7 @@ class FFmpegCapture:
         self._read_started = True
         self.seek_past_end = False
         if self._can_read_forward(pts):
+            logger.debug("%s: seek_to_pts(%.3f) read forward from %.3f", self.path, pts, self._last_pts)
             return self._read_forward_to_pts(pts)
         start = self._info.start_time
         frame_duration = 1.0 / self._fps if self._fps else 0.0
@@ -886,12 +899,15 @@ class FFmpegCapture:
         for attempt in range(_SEEK_MAX_RETRIES + 1):
             self._pos = 0
             seek = max(0.0, (pts - start) - preroll)
+            logger.debug("%s: seek_to_pts(%.3f) attempt %d, -ss %.3f (preroll %.3f)",
+                         self.path, pts, attempt, seek, preroll)
             self._start_pipe(seek)
             while True:
                 got = self._read_raw()
                 if got is None:
                     # A seek that decodes nothing up to the end of the stream
                     # has its answer: `pts` is past the last frame.
+                    logger.debug("%s: seek_to_pts(%.3f) decoded nothing; past the end", self.path, pts)
                     self._stop_pipe()
                     self.seek_past_end = True
                     return False
@@ -904,9 +920,13 @@ class FFmpegCapture:
             # ordinary answer when `pts` falls between two frames, and at the
             # start of the stream there is nothing earlier to retry from.
             if seek <= 0.0 or frame_pts - pts < frame_duration - DISPLAY_TIME_TOLERANCE:
+                logger.debug("%s: seek_to_pts(%.3f) landed on %.3f", self.path, pts, frame_pts)
                 self._parked.append((raw, frame_pts))
                 self._pos = max(0, int(round((frame_pts - start) * self._fps)))
                 return True
+            logger.debug("%s: seek_to_pts(%.3f) landed late on %.3f (%.1f frames); "
+                         "retrying from further back", self.path, pts, frame_pts,
+                         (frame_pts - pts) * self._fps)
             preroll *= 2.0
         logger.warning(
             "seek_to_pts(%r) on %s: every seek, including %d retries from "
@@ -954,10 +974,14 @@ class FFmpegCapture:
             forward = self._read_forward_to_display_time(t)
             if forward is not None:
                 return forward
+            logger.debug("%s: seek_to_display_time(%.3f) cannot read forward (the frame "
+                         "on screen was already consumed by grab()); seeking", self.path, t)
         preroll = _SEEK_PREROLL_SECONDS
         for attempt in range(_SEEK_MAX_RETRIES + 1):
             self.seek_past_end = False
             seek = max(0.0, (limit - start) - preroll)
+            logger.debug("%s: seek_to_display_time(%.3f) attempt %d, -ss %.3f (preroll %.3f)",
+                         self.path, t, attempt, seek, preroll)
             self._start_pipe(seek)
             on_screen = None
             overshoot = None
@@ -976,9 +1000,13 @@ class FFmpegCapture:
                 # after it, so it is parked too rather than decoded again.
                 if overshoot is None and limit >= on_screen[1] + 1.0 / self._fps:
                     # Nothing follows the last frame: `t` is past the end.
+                    logger.debug("%s: seek_to_display_time(%.3f): nothing after %.3f; past the end",
+                                 self.path, t, on_screen[1])
                     self._stop_pipe()
                     self.seek_past_end = True
                     return False
+                logger.debug("%s: seek_to_display_time(%.3f) -> frame %.3f%s", self.path, t, on_screen[1],
+                             "" if overshoot is None else f", next {overshoot[1]:.3f} parked")
                 self._parked.append(on_screen)
                 if overshoot is not None:
                     self._parked.append(overshoot)
@@ -990,12 +1018,17 @@ class FFmpegCapture:
                 # on screen; anywhere else the seek landed late, so retry from
                 # further back.
                 if seek <= 0.0:
+                    logger.debug("%s: seek_to_display_time(%.3f) precedes the first frame %.3f",
+                                 self.path, t, overshoot[1])
                     self._parked.append(overshoot)
                     self._pos = 0
                     return True
+                logger.debug("%s: seek_to_display_time(%.3f) decoded only frames past it "
+                             "(first %.3f); retrying from further back", self.path, t, overshoot[1])
                 preroll *= 2.0
                 continue
             # The pipe decoded nothing at all.
+            logger.debug("%s: seek_to_display_time(%.3f) decoded nothing; past the end", self.path, t)
             self._stop_pipe()
             self.seek_past_end = True
             return False

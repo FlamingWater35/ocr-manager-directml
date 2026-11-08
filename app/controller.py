@@ -108,7 +108,7 @@ Edits
 
 Auto-pilot holds
     JobRunner.resume() clears every hold on a lane, so two flags decide:
-    the user's "pause auto-pilot" and "a run is in progress". AutoPilot is
+    the user's "Pause auto-pilot" and "a run is in progress". AutoPilot is
     paused while either is set and resumed only when both are clear.
 
 Run

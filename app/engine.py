@@ -56,3 +56,22 @@ def engine_problem() -> tuple[str, str] | None:
     return ("OCR engine unavailable",
             f"The OCR engine could not be loaded.\n\n{summary.get('error', '')}\n\n"
             f"Reinstall OCR Manager.")
+
+
+def decoder_problem() -> tuple[str, str] | None:
+    """(title, text) when the ffmpeg decoder is missing; None otherwise.
+
+    The decoder is what turns a video into frames, so without it nothing
+    runs. `core.ffmpeg` decides where the binaries come from (the bundle's
+    own `bin/`, a developer checkout, `$OCR_MANAGER_FFMPEG_DIR`, then PATH);
+    this is the window's view of that, so `app/` never imports `core`.
+    """
+    try:
+        from core import ffmpeg as ffmpeg_tool
+    except Exception as exc:                                # noqa: BLE001 - reported
+        return ("Missing Dependencies",
+                f"The video decoder could not be located.\n\n{type(exc).__name__}: {exc}\n\n"
+                f"Reinstall OCR Manager.")
+    if not ffmpeg_tool.missing_tools():
+        return None
+    return ("Missing Dependencies", ffmpeg_tool.missing_message())

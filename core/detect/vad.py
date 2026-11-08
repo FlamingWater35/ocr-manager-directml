@@ -36,6 +36,7 @@ measurement and its most recent (rank-based probe_times()) numbers.
 """
 from __future__ import annotations
 
+import logging
 import subprocess
 import time
 from collections.abc import Callable
@@ -44,6 +45,8 @@ import numpy as np
 
 from core import ffmpeg as ffmpeg_tool
 from core.proc import TEXT_ENCODING, hidden_child
+
+logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 _BAND_LOW_HZ = 300.0
@@ -320,13 +323,19 @@ def probe_times(video_path: str, duration_sec: float,
     candidates in time order rather than energy order.
     """
     if duration_sec <= 0:
+        logger.debug("probe_times(%s): non-positive duration %r", video_path, duration_sec)
         return []
     start = duration_sec * window_frac[0]
     length = max(0.0, duration_sec * (window_frac[1] - window_frac[0]))
     if length <= 0:
+        logger.debug("probe_times(%s): empty window at %r of %.2fs", video_path, window_frac, duration_sec)
         return []
     if not has_audio_stream(video_path):
+        logger.debug("probe_times(%s): no audio stream, nothing to rank", video_path)
         return []
 
     samples = extract_audio_window(video_path, start, length, cancel_check=cancel_check)
-    return _probe_candidates(samples, SAMPLE_RATE, start, length)
+    times = _probe_candidates(samples, SAMPLE_RATE, start, length)
+    logger.debug("probe_times(%s): %d candidate(s) from %.2fs of audio at %.2fs: %s",
+                 video_path, len(times), length, start, [round(t, 2) for t in times])
+    return times

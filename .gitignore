@@ -68,3 +68,7 @@ tests/goldens/*.actual.ass
 
 # The app's own ffmpeg/ffprobe (~220 MB): fetched per checkout, never committed.
 /bin/
+
+# The PP-OCRv6 tiny/medium models (~145 MB): fetched per checkout, never
+# committed. The wheel already carries the default `small` pair.
+/models/

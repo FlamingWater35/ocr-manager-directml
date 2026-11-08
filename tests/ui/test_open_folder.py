@@ -205,7 +205,7 @@ def test_folder_picker_is_unchanged(tmp_path, monkeypatch, parent):
 def test_empty_state_offers_an_episode_first_and_a_folder_second(qapp):
     view = OpenFolderView()
     assert view.title_label.text() == "Open an episode or a folder of episodes"
-    assert view.hint_label.text() == "or drop one anywhere on this window"
+    assert view.hint_label.text() == "Or drop one anywhere on this window"
     assert view.episode_button.text() == "Open episode…"
     assert view.episode_button.property("variant") == "primary"
     assert view.choose_button.text() == "Open folder…"

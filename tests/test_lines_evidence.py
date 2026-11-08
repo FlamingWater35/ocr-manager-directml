@@ -84,7 +84,7 @@ def test_the_crop_box_is_stored_as_plain_ints():
 
 
 def test_a_draw_that_found_no_lines_is_stored_too():
-    """"no subtitle lines found in {tried} frames" is something to show."""
+    """"No subtitle lines found in {tried} frames" is something to show."""
     project = _project()
     apply_lines(project, _result(samples=(), tried=48))
     assert project.files[NAME].evidence["lines"] == {"crop_box": list(BOX), "seed": 7, "tried": 48, "samples": []}

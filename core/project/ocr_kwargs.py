@@ -37,6 +37,7 @@ def ocr_call_for(entry: FileEntry, folder: FolderSettings, project_dir: str) -> 
         "similar_image_threshold": folder.similar_image,
         "frames_to_skip": folder.frames_to_skip,
         "use_gpu": folder.use_gpu,
+        "tier": folder.ocr_model,
     }
 
     crop = entry.crop

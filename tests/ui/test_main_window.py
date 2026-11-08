@@ -512,7 +512,7 @@ def test_queue_keyboard_moves_marks_and_proves(slay_window, fake_runner):
     QTest.keyClick(queue, Qt.Key.Key_T)
     assert proofs.calls == [(SLAY_NAMES[0],)]
     assert fake_runner.last("proof", SLAY_NAMES[0])
-    assert window.inspector.proof_status.text() == f"running on {PROOF_WINDOW_TEXT}…"
+    assert window.inspector.proof_status.text() == f"Running on {PROOF_WINDOW_TEXT}…"
 
 
 def test_moving_the_selection_hands_the_new_file_to_the_controller(slay_window):
@@ -681,9 +681,9 @@ def test_selecting_a_file_updates_the_inspector_header_and_detected_rows(slay_wi
     assert inspector.brightness_row.value() == "209"
     assert inspector.window_row.value() == "2:33 → 23:05"
     assert inspector.review_button.text() == "Mark not reviewed"
-    assert inspector.skip_button.text() == "skip file"
+    assert inspector.skip_button.text() == "Skip file"
 
-    window.controller.set_time_ranges(SLAY_NAMES[1], None)               # "use whole file": an empty MANUAL list
+    window.controller.set_time_ranges(SLAY_NAMES[1], None)               # "Use whole file": an empty MANUAL list
     assert inspector.window_row.value() == "whole file"
     assert inspector.window_conf.caption() == "set by you"
 
@@ -700,7 +700,7 @@ def test_inspector_detected_rows_show_flagged_values_in_warn(mixed_window):
     assert mixed_window.controller.entry("b.mkv").review == ReviewState.REVIEWED
     inspector.skip_button.click()
     assert mixed_window.controller.entry("b.mkv").skipped
-    assert inspector.skip_button.text() == "include file"
+    assert inspector.skip_button.text() == "Include file"
 
 
 def test_clicking_the_brightness_detected_row_switches_the_stage_tab(slay_window):
@@ -729,13 +729,13 @@ def test_change_offer_appears_after_a_manual_crop_edit(detected_window):
     controller.set_crop(name, (290, 780, 1340, 60))
     assert not inspector.offer_section.isHidden()
     assert inspector.hint_buttons["crop"].text().replace("\n", " ") == (
-        "↻ re-detect the other 4 using this crop as a hint")
+        "↻ Re-detect the other 4 using this crop as a hint")
     assert inspector.offer_note.text() == (
         "Corrections are never copied verbatim to other episodes. Instead the app offers:")
     inspector.hint_buttons["crop"].click()
     assert hints.calls == [(name, "crop")]
     assert inspector.hint_buttons["crop"].isHidden()
-    assert inspector.offer_status.text() == "re-detecting 4 files…"   # until those jobs end
+    assert inspector.offer_status.text() == "Re-detecting 4 files…"   # until those jobs end
 
     controller.set_brightness(name, 215)
     assert not inspector.hint_buttons["brightness"].isHidden()
@@ -763,7 +763,7 @@ def test_proof_section_shows_running_then_lines(slay_window, fake_runner):
     inspector = window.inspector
     name = SLAY_NAMES[0]
     inspector.proof_button.click()
-    assert inspector.proof_status.text() == f"running on {PROOF_WINDOW_TEXT}…"
+    assert inspector.proof_status.text() == f"Running on {PROOF_WINDOW_TEXT}…"
     assert not inspector.proof_status.isHidden()
     submission = fake_runner.last("proof", name)
     lines = [(578.0, 580.0, "你竟掌握了鲲鹏道法"), (581.0, 583.0, "我早已不是当年的我"),
@@ -831,13 +831,13 @@ def test_activity_strip_follows_running_events(slay_window, fake_runner):
 
 def test_pause_autopilot_toggles(slay_window):
     strip, controller = slay_window.activity_strip, slay_window.controller
-    assert strip.pause_button.text() == "pause auto-pilot"
+    assert strip.pause_button.text() == "Pause auto-pilot"
     strip.pause_button.click()
     assert controller.activity().paused
-    assert strip.pause_button.text() == "resume auto-pilot"
+    assert strip.pause_button.text() == "Resume auto-pilot"
     strip.pause_button.click()
     assert not controller.activity().paused
-    assert strip.pause_button.text() == "pause auto-pilot"
+    assert strip.pause_button.text() == "Pause auto-pilot"
 
 
 # --------------------------------------------------------------------------
@@ -1270,7 +1270,7 @@ def test_the_review_tooltip_names_a_missing_value_rather_than_a_wait(make_window
     settle()
     controller, button = window.controller, window.inspector.review_button
     assert controller.entry("a.mkv").review == ReviewState.PENDING
-    assert button.toolTip() == "waiting for detections to finish"        # ... and here it IS a wait
+    assert button.toolTip() == "Waiting for detections to finish"        # ... and here it IS a wait
 
     crop = fake_runner.last("crop", "a.mkv")                 # the detector found no box
     fake_runner.finish(crop, crop_result(crop, box=None, flagged="static-content"))
@@ -1279,7 +1279,7 @@ def test_the_review_tooltip_names_a_missing_value_rather_than_a_wait(make_window
     assert controller.entry("a.mkv").review == ReviewState.FLAGGED
     assert controller.entry("a.mkv").crop is None
     assert not button.isEnabled()
-    assert button.toolTip() == "set a crop first"            # nothing is coming; say so
+    assert button.toolTip() == "Set a crop first"            # nothing is coming; say so
 
     controller.set_crop("a.mkv", BOX)
     settle()
@@ -1299,7 +1299,7 @@ def test_mark_reviewed_is_disabled_while_the_selected_file_is_pending(make_windo
     assert queue.selected() == "a.mkv" and controller.entry("a.mkv").review == ReviewState.PENDING
 
     assert not inspector.review_button.isEnabled()
-    assert inspector.review_button.toolTip() == "waiting for detections to finish"
+    assert inspector.review_button.toolTip() == "Waiting for detections to finish"
     assert not window.review_action.isEnabled()
     assert not menu_actions(queue.context_menu("a.mkv"))["Mark reviewed"].isEnabled()
     QTest.keyClick(queue, Qt.Key.Key_Space)

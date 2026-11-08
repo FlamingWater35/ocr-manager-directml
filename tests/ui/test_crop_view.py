@@ -467,7 +467,7 @@ def test_fit_to_all_samples_aggregates_the_kept_boxes_and_commits(make_tab, monk
         return (200, 700, 1500, 90)
 
     monkeypatch.setattr(crop_mod, "aggregate_box", spy)
-    assert harness.tab.fit_button.text() == "⤢ fit to all 11 samples"
+    assert harness.tab.fit_button.text() == "⤢ Fit to all 11 samples"
     assert harness.tab.fit_button.isEnabled()
     harness.tab.fit_button.click()
     polys, frame_size, settings, times = calls[0]
@@ -500,7 +500,7 @@ def test_fit_uses_the_cutoff_the_detection_used(make_tab, monkeypatch):
 def test_fit_is_disabled_without_kept_samples(make_tab):
     harness = make_tab(evidence=crop_evidence(samples=[sample(60.0, kept=False, boxes=())]))
     assert not harness.tab.fit_button.isEnabled()
-    assert harness.tab.fit_button.text() == "⤢ fit to all 0 samples"
+    assert harness.tab.fit_button.text() == "⤢ Fit to all 0 samples"
 
 
 # --------------------------------------------------------------------------
@@ -536,7 +536,7 @@ def test_the_filmstrip_shows_eight_thumbnails_and_pages(make_tab):
     assert strip.label_text() == "samples"
     assert strip.fits() == 8
     assert len(strip.thumbnails()) == 8
-    assert strip.more_button.text() == "more ▸"
+    assert strip.more_button.text() == "More ▸"
     assert strip.more_button.isVisible()
     assert [thumb.sample_index() for thumb in strip.thumbnails()] == list(range(8))
     strip.more_button.click()
@@ -550,7 +550,7 @@ def test_the_filmstrip_shows_what_fits_and_pages_through_the_rest(make_tab):
     them at the UI scale are wider than the stage is at 1440 px, and a row of
     fixed-size children would make that the window's own minimum width -- the
     window could then not be opened on a 1440 px screen at all. So the row
-    shows the ones its width holds and "more ▸" reaches every other sample."""
+    shows the ones its width holds and "More ▸" reaches every other sample."""
     harness = make_tab()
     strip = harness.tab.strip
     widen(strip, 4)
@@ -666,7 +666,7 @@ def test_request_frames_covers_every_sample_time_on_set_file(make_tab):
 
 def test_the_canvas_shows_the_placeholder_until_the_frame_arrives(make_tab):
     harness = make_tab()
-    assert harness.tab.canvas.placeholder_text() == "loading frame…"
+    assert harness.tab.canvas.placeholder_text() == "Loading frame…"
     harness.deliver_frames()
     assert harness.tab.canvas.placeholder_text() == ""
     harness.tab.canvas.grab()
@@ -681,7 +681,7 @@ def test_an_unreadable_time_is_asked_for_once(make_tab):
     harness.tab.refresh()
     harness.tab.select(3)
     assert len(harness.runner.of_kind("frames", harness.name)) == before
-    assert harness.tab.canvas.placeholder_text() == "loading frame…"
+    assert harness.tab.canvas.placeholder_text() == "Loading frame…"
 
 
 # --------------------------------------------------------------------------

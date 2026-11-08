@@ -20,11 +20,14 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass
 import cv2
+import logging
 import numpy as np
 from thefuzz import fuzz
 
 from . import utils
 from .ffmpeg_capture import DISPLAY_TIME_TOLERANCE, Capture
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -2456,7 +2459,10 @@ class LabelScanner:
         # Phase 1: Detection scan, keeping the crops phase 1.5 will OCR
         retained = _RetainedCrops(self.PHASE15_RETAIN_BUDGET_BYTES)
         text_frames = self._phase1_find_text_frames(det_engine, time_start, time_end, progress, cancel_event=cancel_event, retain=retained)
+        logger.debug("labels: phase 1 found %d frame(s) with text in %s-%s",
+                     len(text_frames), time_start or "start", time_end or "end")
         if not text_frames or (cancel_event is not None and cancel_event.is_set()):
+            logger.debug("labels: stopping after phase 1 (no text frames or cancelled)")
             return []
 
         # Phase 1.5: Batch OCR to annotate boxes with text
@@ -2467,16 +2473,21 @@ class LabelScanner:
 
         # Phase 2: Position grouping (text-aware)
         groups = self._phase2_group_by_position(text_frames, progress)
+        logger.debug("labels: phase 2 grouped the frames into %d position(s)", len(groups))
         if not groups or (cancel_event is not None and cancel_event.is_set()):
+            logger.debug("labels: stopping after phase 2 (no groups or cancelled)")
             return []
 
         # Phase 3: Crop, clean, recognize
         segments = self._phase3_ocr_and_segment(groups, ocr, progress, cancel_event=cancel_event)
+        logger.debug("labels: phase 3 produced %d segment(s)", len(segments))
         if not segments or (cancel_event is not None and cancel_event.is_set()):
+            logger.debug("labels: stopping after phase 3 (no segments or cancelled)")
             return []
 
         # Phase 4: Timing refinement
         labels = self._phase4_find_timing(segments, det_engine, progress, cancel_event=cancel_event)
+        logger.debug("labels: phase 4 timed %d label(s)", len(labels))
 
         # Post-processing: Remove duplicates
         labels = self._remove_duplicates(labels)
@@ -2492,4 +2503,7 @@ class LabelScanner:
             label.start_pts = max(0, label.start_pts - stream_start_time)
             label.end_pts = max(0, label.end_pts - stream_start_time)
 
+        logger.info("labels: %d label(s) found in %s", len(labels),
+                    "the whole file" if not time_start and not time_end
+                    else f"{time_start or 'start'}-{time_end or 'end'}")
         return labels

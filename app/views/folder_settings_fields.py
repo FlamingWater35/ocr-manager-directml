@@ -57,11 +57,22 @@ LANGUAGE_NAMES = {
 # The language list's order: by name, A to Z.
 LANGUAGES = tuple(sorted(LANGUAGE_NAMES, key=lambda code: (LANGUAGE_NAMES[code].casefold(), code)))
 LABELS_NOTE = "With labels off, the label mask regions and their thresholds are hidden entirely."
-AUTOPILOT_NOTE = "These tune detections that start after a change; ↻ re-detect redoes a file."
+AUTOPILOT_NOTE = "These tune detections that start after a change; ↻ Re-detect redoes a file."
 EXTRACTION_FIELDS = ("dialogue_enabled", "labels_enabled")
 LABELS_SECTION = "Labels"
 MASK_KEY = "Mask regions"
-MASK_NOTE = "blacked out before labels are searched, e.g. a channel logo"
+MASK_NOTE = "Blacked out before labels are searched, e.g. a channel logo"
+
+# The PP-OCRv6 sizes (videocr.ocr_engine.MODEL_TIERS), smallest first, with the
+# same one-line trade-off the engine's `tier_description` states. Static for the
+# same reason LANGUAGE_NAMES is: the sheet must not need the engine loaded to
+# draw itself. `tests/test_language_names.py` pins both the order and the
+# wording against the engine, and "small" against its default.
+MODEL_CHOICES = (
+    ("tiny", "Tiny — fastest, least accurate"),
+    ("small", "Small — balanced"),
+    ("medium", "Medium — slowest, most accurate"),
+)
 
 
 def language_label(code: str) -> str:
@@ -73,9 +84,10 @@ def language_label(code: str) -> str:
 class Field:
     """One FolderSettings field: its row, explanation and editor.
 
-    `kind`: "toggle" | "number" | "language". A number with `decimals` 0 is a
-    QSpinBox, otherwise a QDoubleSpinBox. `percent`: the model stores a
-    fraction, the editor shows it × 100. `integer`: the model stores an int."""
+    `kind`: "toggle" | "number" | "language" | "choice". A number with
+    `decimals` 0 is a QSpinBox, otherwise a QDoubleSpinBox. `percent`: the
+    model stores a fraction, the editor shows it × 100. `integer`: the model
+    stores an int. A "choice" field stores the selected `choices` key."""
 
     name: str
     key: str
@@ -89,6 +101,7 @@ class Field:
     singular_suffix: str = ""
     percent: bool = False
     integer: bool = True
+    choices: tuple[tuple[str, str], ...] = ()       # (stored value, shown text) for kind="choice"
 
     def to_editor(self, value):
         shown = value * 100 if self.percent else value
@@ -122,6 +135,9 @@ SECTIONS: tuple[tuple[str, tuple[Field, ...], str], ...] = (
     ), LABELS_NOTE),
     ("OCR engine", (
         Field("ocr_lang", "Language", "the subtitles' language; type to filter the list", kind="language"),
+        Field("ocr_model", "Model size",
+              "bigger models read harder subtitles; tiny is quickest, medium the most accurate",
+              kind="choice", choices=MODEL_CHOICES),
         Field("output_subfolder", "Create subfolder",
               "subtitles go in a folder named after the language, e.g. zh/EP01.zh.ass; off: next to the video",
               kind="toggle"),
@@ -192,6 +208,10 @@ class DoubleSpinBox(_WheelNeedsFocus, QDoubleSpinBox):
 
 class LanguageCombo(_WheelNeedsFocus, QComboBox):
     pass
+
+
+class ChoiceCombo(_WheelNeedsFocus, QComboBox):
+    """A short fixed list (the OCR model sizes): no typing, no filtering."""
 
 
 class SettingRow(QWidget):

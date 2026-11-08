@@ -177,10 +177,14 @@ def sample_lines(video_path: str, crop_box, time_ranges, speech: Iterable | None
         return LinesResult(samples=(), tried=0, seed=seed)
     spans = [(s, e) for s, e in ocr_view.keep_spans(duration, time_ranges) if e > s] if duration > 0 else []
     if not spans:
+        logger.debug("lines %s: no keep range selected anything in %.2fs", video_path, duration)
         return LinesResult(samples=(), tried=0, seed=seed)
     pieces = _speech_pieces(speech, spans)
     if sum(e - s for s, e in pieces) < MIN_SPEECH_SEC:
         pieces = []
+    logger.debug("lines %s: %.2fs, %d keep span(s), %s, seed %r", video_path, duration, len(spans),
+                 f"{sum(e - s for s, e in pieces):.1f}s of speech to draw from" if pieces
+                 else "drawing uniformly (too little speech)", seed)
 
     rng = random.Random(seed)
     excluded = [float(t) for t in exclude]
@@ -203,4 +207,6 @@ def sample_lines(video_path: str, crop_box, time_ranges, speech: Iterable | None
             sample = _line_sample(t, strip, polys)
             if sample is not None:
                 held.append(sample)
+    logger.debug("lines %s: %d line(s) kept from %d candidate(s) over %d round(s)",
+                 video_path, len(held), tried, MAX_ROUNDS)
     return LinesResult(samples=tuple(sorted(held, key=lambda line: line.time)), tried=tried, seed=seed)

@@ -60,7 +60,8 @@ def test_crop_suite_reports_the_probes_detection_used(monkeypatch, synthetic_vid
     from core.detect.crop import CropResult
     from tools import bench
 
-    monkeypatch.setattr("videocr.utils.create_detection_engine", lambda det_model_dir, use_gpu: object())
+    monkeypatch.setattr("videocr.utils.create_detection_engine",
+                        lambda det_model_dir, use_gpu, tier=None: object())
     calls = []
 
     def fake_detect_crop(video_path, duration_sec, det_engine, consensus=None, settings=None, cancel_check=None):

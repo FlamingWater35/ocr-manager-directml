@@ -520,7 +520,7 @@ def test_a_tile_without_boxes_fits_the_whole_strip(loaded, controller):
     assert tile.whole_strip_zoom() == pytest.approx(min(content.width() / STRIP_W,
                                                         content.height() / STRIP_H))
     assert tile.source_rect().width() == STRIP_W and tile.source_rect().height() == STRIP_H
-    assert tile.caption_right() == "not measurable"
+    assert tile.caption_right() == "Not measurable"
     assert tile.status_tone() == "dim" and not tile.is_bad()
 
 
@@ -718,7 +718,7 @@ def test_lost_pixels_are_counted_exactly_and_turn_the_tile_bad(loaded):
     tile = tile_of(loaded, "thin")
     loaded.set_preview(190)
     settle()
-    assert tile.caption_right() == "strokes solid"
+    assert tile.caption_right() == "Strokes solid"
     assert tile.status_tone() == "ok" and not tile.is_bad()
 
     loaded.set_preview(210)                      # DIM_GLYPH rows drop out: half the glyphs
@@ -745,7 +745,7 @@ def test_a_two_line_tile_reports_both_lines_kept(loaded):
     loaded.set_preview(210)
     settle()
     tile = tile_of(loaded, "two_line")
-    assert tile.caption_right() == "both lines kept"
+    assert tile.caption_right() == "Both lines kept"
     assert tile.status_tone() == "ok"
 
 
@@ -755,7 +755,7 @@ def test_a_two_line_subtitle_line_reports_both_lines_kept(controller, fake_runne
     deliver(controller, fake_runner, strips={40.0: two_line_strip()})
     made.set_preview(210)
     settle()
-    assert made.tiles()[0].caption_right() == "both lines kept"
+    assert made.tiles()[0].caption_right() == "Both lines kept"
     made.page().close()
 
 
@@ -795,7 +795,7 @@ def test_an_unmeasurable_tile_says_so_instead_of_claiming_success(loaded, contro
     settle()
     tile = tile_of(loaded, "dark")
     assert tile.has_pixels()
-    assert tile.caption_right() == "not measurable"
+    assert tile.caption_right() == "Not measurable"
     assert tile.status_tone() == "dim"
     assert not tile.is_bad()
 
@@ -820,17 +820,17 @@ def test_a_tile_without_its_strip_says_loading(tab):
     tile = tile_of(tab, "dark")
     assert tile.has_pixels() is False
     assert tile.source_rect() is None
-    assert tile.placeholder_text() == TILE_LOADING == "loading…"
+    assert tile.placeholder_text() == TILE_LOADING == "Loading…"
     assert tile.caption_left() == "00:10 · dark scene"
 
 
 def test_a_tile_whose_strip_could_not_be_read_says_so(tab, controller, fake_runner):
     """A strips job that comes back without a time marks it unreadable for
-    the session: it is never asked for again, so "loading…" would be a lie."""
+    the session: it is never asked for again, so "Loading…" would be a lie."""
     dark = TILE_TIMES["dark"]
     deliver(controller, fake_runner, strips={t: s for t, s in strips_for().items() if t != dark})
     assert controller.strip_unavailable(NAME, BOX, dark) is True
-    assert tile_of(tab, "dark").placeholder_text() == TILE_UNREADABLE == "this frame could not be read"
+    assert tile_of(tab, "dark").placeholder_text() == TILE_UNREADABLE == "This frame could not be read"
     assert tile_of(tab, "bright").placeholder_text() == ""
 
 
@@ -843,7 +843,7 @@ def test_no_crop_says_so(controller):
     give_values(controller, box=None, value=None)
     made = make_tab(controller)
     assert made.tiles() == []
-    assert made.empty_text() == EMPTY_NO_CROP == "no crop yet — set one on the Crop tab"
+    assert made.empty_text() == EMPTY_NO_CROP == "No crop yet — set one on the Crop tab"
     assert made.empty_label().isVisible()
     made.page().close()
 
@@ -853,7 +853,7 @@ def test_lines_on_their_way_say_so(controller):
     controller.pending_detectors = lambda: {NAME: {"lines"}}
     made = make_tab(controller)
     assert made.tiles() == []
-    assert made.empty_text() == EMPTY_FINDING == "finding subtitle lines…"
+    assert made.empty_text() == EMPTY_FINDING == "Finding subtitle lines…"
     made.page().close()
 
 
@@ -861,9 +861,9 @@ def test_no_lines_found_names_how_many_frames_were_tried(controller):
     give_values(controller, value=None, lines=lines_evidence(times=(), tried=24))
     made = make_tab(controller)
     assert made.tiles() == []
-    assert EMPTY_NO_LINES.format(tried=24) == "no subtitle lines found in 24 frames"
-    assert made.empty_text().startswith("no subtitle lines found in 24 frames")
-    assert "↻ shuffle" in made.empty_text()
+    assert EMPTY_NO_LINES.format(tried=24) == "No subtitle lines found in 24 frames"
+    assert made.empty_text().startswith("No subtitle lines found in 24 frames")
+    assert "↻ Shuffle" in made.empty_text()
     made.page().close()
 
 
@@ -899,7 +899,7 @@ def recorded(controller, name: str) -> list[tuple]:
 
 def test_shuffle_asks_the_controller_for_new_lines(mixed, controller):
     button = mixed.shuffle_button
-    assert button.text() == SHUFFLE_TEXT == "↻ shuffle"
+    assert button.text() == SHUFFLE_TEXT == "↻ Shuffle"
     assert button.isEnabled()
     button.click()
     settle()
@@ -1065,7 +1065,7 @@ def test_the_curve_carries_both_series_and_both_markers(loaded):
     assert curve.marker_x()[0] == pytest.approx(curve.x_for(209))       # auto
     assert curve.marker_x()[1] == pytest.approx(curve.x_for(209))       # yours
     assert "■ OCR holds up" in curve.legend_texts()
-    assert "┅ background clutter still firing" in curve.legend_texts()
+    assert "┅ Background clutter still firing" in curve.legend_texts()
     assert "┆ 209 auto" in curve.legend_texts()
     assert "▲ 209 yours" in curve.legend_texts()
     assert curve.axis_texts() == ("100", "255")
@@ -1076,7 +1076,7 @@ def test_the_clutter_caption_is_left_out_without_a_clutter_curve(controller):
     made = make_tab(controller)
     legend = made.curve.legend_texts()
     assert "■ OCR holds up" in legend
-    assert "┅ background clutter still firing" not in legend
+    assert "┅ Background clutter still firing" not in legend
     made.page().close()
 
 
@@ -1084,8 +1084,8 @@ def test_an_empty_curve_says_it_was_not_verified(controller):
     give_values(controller, evidence=brightness_evidence(curve=[], clutter=[], plateau=None))
     made = make_tab(controller)
     assert made.curve.points() == []
-    assert "not verified on this file" in made.curve.legend_texts()
-    assert "┅ background clutter still firing" not in made.curve.legend_texts()
+    assert "Not verified on this file" in made.curve.legend_texts()
+    assert "┅ Background clutter still firing" not in made.curve.legend_texts()
     assert made.curve.marker_x()[1] is not None
     made.page().close()
 
@@ -1132,7 +1132,7 @@ def test_use_commits_auto(loaded, controller):
     controller.set_brightness(NAME, 221)
     loaded.refresh()
     settle()
-    assert loaded.panel.use_button.text() == "use 209"
+    assert loaded.panel.use_button.text() == "Use 209"
     loaded.panel.use_button.click()
     settle()
     assert calls.calls[-1] == (NAME, 209)
@@ -1144,10 +1144,10 @@ def test_use_commits_auto(loaded, controller):
 # --------------------------------------------------------------------------
 
 def test_apply_to_all_names_the_value_on_screen(loaded):
-    assert loaded.panel.all_button.text() == "apply 209 to all files"
+    assert loaded.panel.all_button.text() == "Apply 209 to all files"
     loaded.set_preview(185)
     settle()
-    assert loaded.panel.all_button.text() == "apply 185 to all files"
+    assert loaded.panel.all_button.text() == "Apply 185 to all files"
     assert loaded.panel.all_button.isEnabled()
 
 
@@ -1233,7 +1233,7 @@ def test_a_file_with_nothing_kept_says_its_threshold_is_a_preview(controller):
     controller.entry(NAME).brightness = None
     made = make_tab(controller)
     assert made.panel.yours_row.value() == "— → 209"
-    assert made.panel.preview_text() == "preview only — 209 is not kept yet"
+    assert made.panel.preview_text() == "Preview only — 209 is not kept yet"
     made.page().close()
 
 
@@ -1286,7 +1286,7 @@ def test_a_stale_brightness_says_re_detecting_while_one_is_pending(controller):
                 evidence=brightness_evidence(crop_box=OTHER_BOX, value_crop_box=BOX))
     controller.pending_detectors = lambda: {NAME: {"brightness"}}
     made = make_tab(controller)
-    assert made.panel.stale_text() == "measured on an earlier crop — re-detecting"
+    assert made.panel.stale_text() == "Measured on an earlier crop — re-detecting"
     made.page().close()
 
 
@@ -1309,7 +1309,7 @@ def test_a_brightness_measured_on_an_earlier_crop_warns(controller):
     give_values(controller, box=OTHER_BOX,
                 evidence=brightness_evidence(crop_box=OTHER_BOX, value_crop_box=BOX))
     made = make_tab(controller)
-    assert made.panel.stale_text() == "measured on an earlier crop — re-detect to refresh"
+    assert made.panel.stale_text() == "Measured on an earlier crop — re-detect to refresh"
     assert made.crop_box() == OTHER_BOX
     made.page().close()
 
@@ -1332,7 +1332,7 @@ def test_evidence_from_another_crop_is_named_and_the_gallery_uses_the_files_own(
     made = make_tab(controller)
     assert made.crop_box() == OTHER_BOX
     assert made.tiles() == []
-    assert made.panel.stale_text() == "measured on an earlier crop — re-detect to refresh"
+    assert made.panel.stale_text() == "Measured on an earlier crop — re-detect to refresh"
     assert made.panel.crop_note_text() == CURVE_OTHER_CROP
     assert CURVE_OTHER_CROP in made.panel.notes()
     made.page().close()
@@ -1342,7 +1342,7 @@ def test_a_value_stale_on_its_own_does_not_claim_the_curve_is_elsewhere(controll
     give_values(controller, box=OTHER_BOX,
                 evidence=brightness_evidence(crop_box=OTHER_BOX, value_crop_box=BOX))
     made = make_tab(controller)
-    assert made.panel.stale_text() == "measured on an earlier crop — re-detect to refresh"
+    assert made.panel.stale_text() == "Measured on an earlier crop — re-detect to refresh"
     assert made.panel.crop_note_text() == ""
     made.page().close()
 
@@ -1352,7 +1352,7 @@ def test_a_manual_brightness_on_an_edited_crop_still_warns(controller):
                 evidence=brightness_evidence(crop_box=BOX, value_crop_box=None))
     made = make_tab(controller)
     assert made.crop_box() == OTHER_BOX
-    assert made.panel.stale_text() == "measured on an earlier crop — re-detect to refresh"
+    assert made.panel.stale_text() == "Measured on an earlier crop — re-detect to refresh"
     made.page().close()
 
 

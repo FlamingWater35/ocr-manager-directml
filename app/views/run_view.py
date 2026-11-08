@@ -15,7 +15,7 @@ while the review queue stays.
     - "{k} workers idle" -- text only, since the run already has every
       worker its parallel allows and there is nothing to raise to -- when it
       leaves worker slots unused while files wait (`idle_workers`, B13);
-    - otherwise "{q} files queued ·" with a ghost "raise to {m}" button,
+    - otherwise "{q} files queued ·" with a ghost "Raise to {m}" button,
       m = parallel + 2 capped at MAX_PARALLEL, while files wait and the
       folder is below that cap. This is the case that actually comes up,
       since the run job fills a free worker at once (B13 as amended). The
@@ -23,7 +23,7 @@ while the review queue stays.
       running job (RunJob.set_parallel).
 - Right panel (300 px, scaled) "LIVE · {file}": the recognised lines of the
   followed file ("MM:SS text"), by default the most recently started file;
-  "follow ▾" picks another. Then the note that reviewing goes on meanwhile.
+  "Follow ▾" picks another. Then the note that reviewing goes on meanwhile.
 
 Decode fps and OCR img/s are omitted (B13: they need instrumentation inside
 videocr). Views import no core module.
@@ -76,7 +76,7 @@ MAX_PARALLEL = 8                            # the folder settings sheet's upper 
 PARALLEL_STEP = 2                           # how much "raise to" offers above the folder's parallel
 IDLE_HINT = "{count} {noun} idle"
 QUEUED_HINT = "{count} {noun} queued ·"
-RAISE_TEXT = "raise to {m}"
+RAISE_TEXT = "Raise to {m}"
 
 _PROGRESS_COLOURS = {"run": tokens.BLUE, "done": tokens.ACC, "bad": tokens.BAD, "dim": tokens.DIM2}
 
@@ -440,7 +440,7 @@ class RunView(QWidget):
         super().__init__(parent)
         self._controller = controller
         self._rows: dict[str, RunRow] = {}
-        self._pinned: str | None = None          # the file chosen with "follow ▾"; None follows the newest
+        self._pinned: str | None = None          # the file chosen with "Follow ▾"; None follows the newest
         self._followed: str | None = None
         self._raise_to: int | None = None        # what "raise to" offers; None when there is no button
         self.setObjectName("RunView")
@@ -521,7 +521,7 @@ class RunView(QWidget):
         font = self.live_title.font()
         font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 100 + tokens.LETTER_SPACING_SCOPE_EM * 100)
         self.live_title.setFont(font)
-        self.follow_button = Button("follow ▾", "ghost", small=True)
+        self.follow_button = Button("Follow ▾", "ghost", small=True)
         self.follow_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.follow_button.clicked.connect(self._show_follow_menu)
         head.addWidget(self.live_title, 1)
@@ -559,7 +559,7 @@ class RunView(QWidget):
         return [line.text() for line in self._feed_lines()]
 
     def hint_text(self) -> str:
-        """The footer's hint as one line ("3 files queued · raise to 6", or
+        """The footer's hint as one line ("3 files queued · Raise to 6", or
         "2 workers idle" when there is no button); "" when there is none."""
         if self.hint_label.isHidden():
             return ""

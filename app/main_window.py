@@ -85,11 +85,10 @@ from PyQt6.QtWidgets import (
 )
 
 from app.controller import ProjectController, UnsupportedProjectVersion
-from app.engine import engine_problem
+from app.engine import decoder_problem, engine_problem
 from app.logbook import PIPELINE_LOG
 from app.state_text import can_mark_reviewed, can_run_proof
 from app.theme import tokens
-from core import ffmpeg as ffmpeg_tool
 from app.views.activity import ActivityStrip
 from app.views.banner import Banner
 from app.views.episode import DoneView, PrepareView, WorkingView
@@ -147,13 +146,14 @@ BLOCKED_SAVE_TEXT = ("This folder's .ocr.json could not be written, so nothing y
 def dependency_problems() -> list[tuple[str, str]]:
     """(title, text) per missing dependency, in today's words (main.py
     check_dependencies): the ffmpeg decoder, and the OCR engine
-    (`app.engine.engine_problem`)."""
+    (`app.engine.decoder_problem` / `engine_problem`)."""
     problems = []
     engine = engine_problem()
     if engine is not None:
         problems.append(engine)
-    if ffmpeg_tool.missing_tools():
-        problems.append(("Missing Dependencies", ffmpeg_tool.missing_message()))
+    decoder = decoder_problem()
+    if decoder is not None:
+        problems.append(decoder)
     return problems
 
 

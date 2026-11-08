@@ -760,7 +760,7 @@ def _reviewable(review) -> FileEntry:
 ])
 def test_can_mark_reviewed_waits_for_pending_files(review, expected):
     assert state_text.can_mark_reviewed(_reviewable(review)) is expected
-    assert state_text.REVIEW_WAIT_TOOLTIP == "waiting for detections to finish"
+    assert state_text.REVIEW_WAIT_TOOLTIP == "Waiting for detections to finish"
 
 
 @pytest.mark.parametrize("entry, missing", [

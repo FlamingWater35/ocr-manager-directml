@@ -81,11 +81,11 @@ from app.widgets.base import Button, KvRow, repolish
 NOTE_TEXT = ("Detected blocks come from audio fingerprints shared across the folder; the speech "
              "lane is computed per episode, so a post-credits scene can't be silently dropped.")
 WARNING_TEXT = "⚠ Speech at {start}–{end} falls inside the {kind} block"
-UNREADABLE_TEXT = "⚠ A stored time range could not be read ({values}) — fix it or use whole file"
+UNREADABLE_TEXT = "⚠ A stored time range could not be read ({values}) — fix it or Use whole file"
 NO_DURATION_TEXT = "Duration not scanned yet — the timeline is drawn once the file has been read."
-EXTEND_TEXT = "extend keep →"
-ADD_TEXT = "+ add range"
-WHOLE_FILE_TEXT = "use whole file"
+EXTEND_TEXT = "Extend keep →"
+ADD_TEXT = "+ Add range"
+WHOLE_FILE_TEXT = "Use whole file"
 REMOVE_TEXT = "✕"
 DELETE_RANGE_TEXT = "Delete range"       # the track's right-click menu, on a keep span ...
 ADD_HERE_TEXT = "Add range here"         # ... and on a skip span
@@ -153,14 +153,14 @@ MARK_HEIGHT = tokens.px(6)            # ... 6 px along the bottom, as workbench-
 MARK_WIDTH = tokens.px(1)
 WARN_ROW_PADDING_X = tokens.px(8)     # the warn-tinted .kv around the sentence
 WARN_ROW_PADDING_Y = tokens.px(5)
-WARN_ROW_GAP = tokens.px(8)           # ... between it and "extend keep →"
-BUTTON_GAP = tokens.px(6)             # "+ add range" / "use whole file"
+WARN_ROW_GAP = tokens.px(8)           # ... between it and "Extend keep →"
+BUTTON_GAP = tokens.px(6)             # "+ Add range" / "Use whole file"
 
 # --- editing ---------------------------------------------------------------
 
 SNAP_SECONDS = 1                      # every boundary lands on a whole second
 MIN_SPAN = 1.0                        # and no two boundaries land on the same one
-ADD_RANGE_SECONDS = 60.0              # "+ add range" adds a minute
+ADD_RANGE_SECONDS = 60.0              # "+ Add range" adds a minute
 
 
 def _alpha(colour: str, alpha: float) -> QColor:
@@ -172,7 +172,9 @@ def _alpha(colour: str, alpha: float) -> QColor:
 def _font(size: float) -> QFont:
     font = QFont()
     font.setFamilies(tokens.FONT_STACK)
-    font.setPointSizeF(size * 0.75)          # px -> pt, as the other views do
+    # px -> pt, as the other views do; floored at 1pt because Qt warns
+    # ("QFont::setPointSize: Point size <= 0") and ignores smaller sizes.
+    font.setPointSizeF(max(1.0, size * 0.75))
     return font
 
 
@@ -909,7 +911,7 @@ def _block_detail(block: dict | None) -> str:
 # --------------------------------------------------------------------------
 
 class WarningRow(QWidget):
-    """A warn-tinted `.kv`: the sentence, and "extend keep →"."""
+    """A warn-tinted `.kv`: the sentence, and "Extend keep →"."""
 
     extend_requested = pyqtSignal()
 
@@ -955,7 +957,7 @@ class KeepRow(KvRow):
 
 class RangesInspectorPanel(Section):
     """The Time ranges tab's slice of the inspector (ruling B4): one row per
-    keep range, "+ add range" and "use whole file".
+    keep range, "+ Add range" and "Use whole file".
 
     No hint offer (ruling C3) and no scope header -- the inspector's own
     header already says "◆ this episode only"."""
@@ -1134,7 +1136,7 @@ class RangesTab:
 
     def extend_keep(self, index: int) -> None:
         """Grow the keep range next to the `index`-th warning until it covers
-        the speech (ui-spec §3.6's "extend keep →")."""
+        the speech (ui-spec §3.6's "Extend keep →")."""
         if 0 <= index < len(self._warnings):
             warning = self._warnings[index]
             self.timeline.commit(with_extended_keep(self.timeline.keeps() or self._whole_file(),

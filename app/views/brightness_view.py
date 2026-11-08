@@ -16,7 +16,7 @@ The gallery (`gallery_plan`)
     dark, bright, thin, two_line -- the frames a threshold is most likely to
     break on -- when that evidence was measured on the file's current crop.
     Then the file's subtitle lines (`evidence["lines"]`, drawn at random by
-    `core/detect/lines.py`, cached, re-drawn by "↻ shuffle") in time order,
+    `core/detect/lines.py`, cached, re-drawn by "↻ Shuffle") in time order,
     skipping any within MIN_GAP_SEC of a pick, until the gallery is full.
     Lines count only when they were drawn on the file's current crop.
 
@@ -80,7 +80,7 @@ Evidence is disposable
     file".
 
 Layout (ruling B4 moves `tabs-hifi`'s 230 px side panel into the one
-persistent inspector, so the stage keeps the full width). "↻ shuffle" and
+persistent inspector, so the stage keeps the full width). "↻ Shuffle" and
 the two toggles are `toolbar()`, which the Stage mounts in the stage head
 (ruling B3); the page below it is:
 
@@ -144,48 +144,48 @@ LINE_KIND = "line"                                         # a random subtitle l
 KIND_LABELS = {"dark": "dark scene", "bright": "bright bg", "thin": "thin strokes",
                "two_line": "two lines", LINE_KIND: "subtitle line"}
 
-SHUFFLE_TEXT = "↻ shuffle"
-SHUFFLE_TIP = "draw other random subtitle lines (the detector's picks stay)"
-LOST_TOGGLE_TEXT = "show lost pixels"
-MASK_TOGGLE_TEXT = "raw ⇄ masked"
-TILE_TIP = "wheel: zoom around the cursor · drag: pan · double-click: fit"
-TILE_LOADING = "loading…"
-TILE_UNREADABLE = "this frame could not be read"
+SHUFFLE_TEXT = "↻ Shuffle"
+SHUFFLE_TIP = "Draw other random subtitle lines (the detector's picks stay)"
+LOST_TOGGLE_TEXT = "Show lost pixels"
+MASK_TOGGLE_TEXT = "Raw ⇄ masked"
+TILE_TIP = "Wheel: zoom around the cursor · drag: pan · double-click: fit"
+TILE_LOADING = "Loading…"
+TILE_UNREADABLE = "This frame could not be read"
 CURVE_HEADER = "Threshold · keeps pixels where min(B,G,R) ≥ t"
-CURVE_HINT = "drag anywhere — every tile redraws in under a millisecond"
+CURVE_HINT = "Drag anywhere — every tile redraws in under a millisecond"
 CURVE_CAPTION = "■ OCR holds up"
-CLUTTER_CAPTION = "┅ background clutter still firing"
-NOT_VERIFIED = "not verified on this file"
-NOT_MEASURABLE = "not measurable"
+CLUTTER_CAPTION = "┅ Background clutter still firing"
+NOT_VERIFIED = "Not verified on this file"
+NOT_MEASURABLE = "Not measurable"
 
 # The gallery's empty states, centred where the tiles would be. Each says
 # what is true now; none promises something nothing is going to deliver.
-EMPTY_NO_CROP = "no crop yet — set one on the Crop tab"
-EMPTY_FINDING = "finding subtitle lines…"
-EMPTY_NO_LINES = "no subtitle lines found in {tried} frames"
-EMPTY_TRY_AGAIN = "↻ shuffle to try again"
+EMPTY_NO_CROP = "No crop yet — set one on the Crop tab"
+EMPTY_FINDING = "Finding subtitle lines…"
+EMPTY_NO_LINES = "No subtitle lines found in {tried} frames"
+EMPTY_TRY_AGAIN = "↻ Shuffle to try again"
 # Lines missing and none on their way (auto-pilot off, say): "finding…"
 # would be a promise nothing keeps, so this says how to get some.
-EMPTY_NOT_DRAWN = "no subtitle lines drawn yet — ↻ shuffle draws some"
+EMPTY_NOT_DRAWN = "No subtitle lines drawn yet — ↻ Shuffle draws some"
 
-STALE_REDETECTING = "measured on an earlier crop — re-detecting"
-STALE_REDETECT = "measured on an earlier crop — re-detect to refresh"
+STALE_REDETECTING = "Measured on an earlier crop — re-detecting"
+STALE_REDETECT = "Measured on an earlier crop — re-detect to refresh"
 # Shown under it while the curve (and the safe range the note names) comes
 # from evidence measured on another crop than the file's own. The tiles are
 # always of the file's crop (see `gallery_plan`); the curve cannot be
 # re-measured by a view, so it says whose it is. The warn line above is
 # about the stored VALUE, this one about what is on screen.
-CURVE_OTHER_CROP = "the curve shows that crop, not the file's current one"
+CURVE_OTHER_CROP = "The curve shows that crop, not the file's current one"
 NO_VALUE = "—"
 # Mid-drag the row names both values ("211 → 180"): the file keeps 211 until
 # the mouse is let go. With no value stored at all, the row reads "— → 209"
 # and this line says the file does not have it -- otherwise the panel would
 # claim a value the inspector's Detected section, 150 px below, does not.
 PREVIEW_ROW = "{stored} → {preview}"
-PREVIEW_NOTE = "preview only — {value} is not kept yet"
+PREVIEW_NOTE = "Preview only — {value} is not kept yet"
 # "apply {t} to all files": the value on screen, as MANUAL, for every file not
 # skipped (controller.apply_brightness_to_all), after one question.
-APPLY_ALL_TEXT = "apply {value} to all files"
+APPLY_ALL_TEXT = "Apply {value} to all files"
 APPLY_ALL_BRIGHTNESS_TEXT = ("Set brightness {value} on all {n} files?\n\n"
                              "Each file's own brightness is replaced. Skipped files are left alone.")
 
@@ -266,7 +266,10 @@ def _alpha(colour: str, alpha: float) -> QColor:
 def _font(size: float, weight: int | None = None) -> QFont:
     font = QFont()
     font.setFamilies(tokens.FONT_STACK)
-    font.setPointSizeF(size * 0.75)          # px -> pt at Qt's 96 dpi logical baseline
+    # px -> pt at Qt's 96 dpi logical baseline, floored at 1pt: Qt warns
+    # ("QFont::setPointSize: Point size <= 0") and ignores anything smaller,
+    # so a tiny or unscaled token must still give a usable font.
+    font.setPointSizeF(max(1.0, size * 0.75))
     if weight is not None:
         font.setWeight(QFont.Weight(weight))
     return font
@@ -427,7 +430,7 @@ class ZoomTile(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self.setToolTip(TILE_TIP)
         self._pixels: StripPixels | None = None
-        self._unreadable = False             # its strip came back unreadable: say so, not "loading…"
+        self._unreadable = False             # its strip came back unreadable: say so, not "Loading…"
         self._scale: float | None = None               # None: at fit
         self._centre: tuple[float, float] | None = None
         self._t = DEFAULT_BRIGHTNESS
@@ -488,7 +491,7 @@ class ZoomTile(QWidget):
         return self._pixels is not None
 
     def placeholder_text(self) -> str:
-        """What the glyph area says instead of pixels: "loading…" until the
+        """What the glyph area says instead of pixels: "Loading…" until the
         strip arrives, then nothing -- or, for a strip the controller could
         not decode, that it never will."""
         if self._pixels is not None:
@@ -712,8 +715,8 @@ class ZoomTile(QWidget):
         if percent >= LOST_ALERT_PERCENT:
             return f"{_round_half_up(percent)}% of glyph pixels lost", "bad"
         if self.spec.lines >= 2:
-            return "both lines kept", "ok"
-        return "strokes solid", "ok"
+            return "Both lines kept", "ok"
+        return "Strokes solid", "ok"
 
     # --- the mouse ----------------------------------------------------------
 
@@ -1127,7 +1130,7 @@ class BrightnessInspectorPanel(QWidget):
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, PANEL_BUTTON_TOP, 0, 0)
         buttons.setSpacing(PANEL_BUTTON_GAP)
-        self.use_button = small_button("use")
+        self.use_button = small_button("Use")
         self.use_button.clicked.connect(self.use_auto)
         buttons.addWidget(self.use_button)
         buttons.addStretch(1)
@@ -1163,7 +1166,7 @@ class BrightnessInspectorPanel(QWidget):
                             (self.flag_label, flags), (self.note, note)):
             label.setText(text)
             label.setVisible(bool(text))
-        self.use_button.setText("use" if auto is None else f"use {auto}")
+        self.use_button.setText("Use" if auto is None else f"Use {auto}")
         self.use_button.setEnabled(auto is not None)
         self.all_button.setText(APPLY_ALL_TEXT.format(value=NO_VALUE if value is None else value))
         self.all_button.setEnabled(value is not None)
@@ -1228,7 +1231,7 @@ class BrightnessTab:
         # six tiles twice per edit. A tab mounted outside a Stage calls
         # refresh() itself.
         controller.strips_ready.connect(self._on_strips_ready)
-        # A lines job queued or finished changes whether "↻ shuffle" may be
+        # A lines job queued or finished changes whether "↻ Shuffle" may be
         # pressed and what an empty gallery says; neither needs a re-render.
         controller.activity_changed.connect(self._sync_lines_state)
 
@@ -1314,7 +1317,7 @@ class BrightnessTab:
         return self.panel
 
     def toolbar(self) -> QWidget:
-        """"↻ shuffle" and the two toggles, which the Stage mounts in the
+        """"↻ Shuffle" and the two toggles, which the Stage mounts in the
         stage head (ruling B3) beside the tab buttons -- the same place the
         Crop tab puts envelope / masked / grid."""
         return self._toolbar
@@ -1594,7 +1597,7 @@ class BrightnessTab:
             self._asking = False
 
     def _sync_lines_state(self) -> None:
-        """"↻ shuffle" and the gallery's empty state, which follow the
+        """"↻ Shuffle" and the gallery's empty state, which follow the
         lines job as well as the model."""
         entry = self._entry()
         pending = entry is not None and self._lines_pending(entry)

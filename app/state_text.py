@@ -213,7 +213,7 @@ def _no_evidence(source: Source | None, blocking: bool) -> tuple[str, float, str
     return _NO_EVIDENCE_KEPT, 0.0, ("warn" if blocking else "default")
 
 
-NO_SAMPLES_CAPTION = "no samples measured"
+NO_SAMPLES_CAPTION = "No samples measured"
 
 
 def crop_caption(evidence: dict | None, source: Source | None, *,
@@ -357,7 +357,7 @@ def _time_text(value: str | None, missing: str) -> str:
 
 def ranges_text(time_ranges) -> str:
     """"2:33 → 23:05" per keep range; "whole file" for None or an empty list
-    (a manual "use whole file" is stored as an empty MANUAL list)."""
+    (a manual "Use whole file" is stored as an empty MANUAL list)."""
     if time_ranges is None or not time_ranges.ranges:
         return "whole file"
     spans = [f"{_time_text(r.start, '0:00')} → {_time_text(r.end, 'end')}" for r in time_ranges.ranges]
@@ -489,8 +489,8 @@ def field_blocking(entry: FileEntry, field: str) -> bool:
 # Marking reviewed
 # --------------------------------------------------------------------------
 
-REVIEW_WAIT_TOOLTIP = "waiting for detections to finish"
-REVIEW_MISSING_TOOLTIP = "set a {what} first"
+REVIEW_WAIT_TOOLTIP = "Waiting for detections to finish"
+REVIEW_MISSING_TOOLTIP = "Set a {what} first"
 
 
 def is_reviewed(entry: FileEntry) -> bool:

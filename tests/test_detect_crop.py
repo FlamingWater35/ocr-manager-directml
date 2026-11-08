@@ -1618,3 +1618,23 @@ def test_cancelling_while_audio_is_extracted_returns_a_cancelled_result_promptly
     assert time.monotonic() - started < 3.0
     assert result.flagged == crop.FLAG_CANCELLED
     assert result.box is None and result.probes_used == 0 and not result.auto_applicable
+
+
+@pytest.mark.parametrize("score, accepted", [
+    (0.83, True),        # a plain white subtitle on a soft background, PP-OCRv6's usual reading
+    (0.814, True),       # the lowest true reading measured on a real subtitle band
+    (0.75, True),        # the threshold itself is accepted (>=, not >)
+    (0.74, False),
+    (0.0, False),
+])
+def test_the_detector_score_threshold_accepts_the_scores_pp_ocrv6_actually_gives(
+        monkeypatch, score, accepted):
+    """PP-OCRv6 scores real subtitle text at 0.80-0.87, far below the 0.97 the
+    PaddleOCR detector gave, so the old 0.9 threshold accepted nothing and auto
+    crop reported "no text found" on files whose subtitles were visible.  This
+    pins the calibrated value against those readings: anything at or above the
+    measured range's floor must pass, and a score below it must not."""
+    result = _detect_crop_with_fakes(monkeypatch, [10.0, 10.8, 11.6, 12.4, 13.2],
+                                     lambda t: ([score], [_poly(400, 980, 1500, 1030)]))
+    assert (result.box is not None) is accepted
+    assert crop.DT_SCORE_THRESHOLD == 0.75

@@ -10,6 +10,7 @@ app keeps its own files and whether it runs from a bundle.
 |----------|------|
 | `paths`  | data dir, model cache, log file, `$OCR_MANAGER_BUNDLE` and bundle.json |
 | `logfile`| sending stdout/stderr to a log file when there is no console |
+| `logsetup`| the logging handlers: a file at DEBUG, plus the console |
 
 `videocr/ocr_engine.py` is the engine itself; nothing here imports it.
 """

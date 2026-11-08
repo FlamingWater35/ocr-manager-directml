@@ -4,6 +4,7 @@ from collections import Counter
 from queue import Queue, Empty
 from threading import Thread
 import cv2
+import logging
 import numpy as np
 import time
 
@@ -11,6 +12,28 @@ from . import engine_registry, utils
 from .models import PredictedFrames, PredictedSubtitle
 
 from .ffmpeg_capture import Capture, DECODE_TARGET_HEIGHT
+
+logger = logging.getLogger(__name__)
+
+
+def _count_lines(results) -> int:
+    """Recognised lines across a batch's OCR results, for the debug log.
+
+    A result is normally the `rec_texts`/`rec_scores`/`rec_polys` dict
+    `videocr.ocr_engine.RapidEngine` returns, but `PredictedFrames` below also
+    accepts a list-wrapped one (`pred_data[0]`), so both shapes are counted
+    and anything else contributes nothing rather than raising inside a log
+    call in the middle of a run.
+    """
+    total = 0
+    for item in results:
+        if isinstance(item, (list, tuple)):
+            item = item[0] if item else {}
+        if isinstance(item, dict):
+            texts = item.get("rec_texts")
+            total += len(texts) if texts else 0
+    return total
+
 
 # Batch size for OCR processing - higher values = faster but more GPU memory.
 # Smaller batches flush more often, so OCR inference on an early batch
@@ -308,7 +331,7 @@ class Video:
     def width(self, value) -> None:
         self._width = value
 
-    def run_ocr(self, use_gpu: bool, lang: str, time_start: str, time_end: str, conf_threshold: int, use_fullframe: bool, brightness_threshold: int, similar_image_threshold: float, similar_pixel_threshold: int, frames_to_skip: int, crop_x: int, crop_y: int, crop_width: int, crop_height: int, progress=None, subtitle_callback=None, cancel_event=None, ocr_engine=None) -> None:
+    def run_ocr(self, use_gpu: bool, lang: str, time_start: str, time_end: str, conf_threshold: int, use_fullframe: bool, brightness_threshold: int, similar_image_threshold: float, similar_pixel_threshold: int, frames_to_skip: int, crop_x: int, crop_y: int, crop_width: int, crop_height: int, progress=None, subtitle_callback=None, cancel_event=None, ocr_engine=None, tier=None) -> None:
         """OCR the dialogue region of one time range into `self.pred_frames`.
 
         `ocr_engine`, when given, must be an engine the caller holds a lease
@@ -317,6 +340,10 @@ class Video:
         label pass. Without one, this call leases its own and returns it when
         it finishes. Engines are never shared between concurrent callers, and
         nothing here keeps the engine (or any result from it) past the call.
+
+        `tier` is the PP-OCRv6 size used when this call leases its own engine;
+        it is ignored when `ocr_engine` is passed (that engine already has a
+        size, and it is part of the pool key).
         """
         args = (use_gpu, lang, time_start, time_end, conf_threshold, use_fullframe,
                 brightness_threshold, similar_image_threshold, similar_pixel_threshold,
@@ -325,7 +352,7 @@ class Video:
         if ocr_engine is not None:
             self._run_ocr_with_engine(ocr_engine, *args, **options)
             return
-        with engine_registry.lease_ocr_engine(lang, self.det_model_dir, self.rec_model_dir, use_gpu) as ocr:
+        with engine_registry.lease_ocr_engine(lang, self.det_model_dir, self.rec_model_dir, use_gpu, tier) as ocr:
             self._run_ocr_with_engine(ocr, *args, **options)
 
     def _run_ocr_with_engine(self, ocr, use_gpu: bool, lang: str, time_start: str, time_end: str, conf_threshold: int, use_fullframe: bool, brightness_threshold: int, similar_image_threshold: float, similar_pixel_threshold: int, frames_to_skip: int, crop_x: int, crop_y: int, crop_width: int, crop_height: int, progress=None, subtitle_callback=None, cancel_event=None) -> None:
@@ -433,6 +460,18 @@ class Video:
             # get frames from ocr_start to ocr_end using producer-consumer pattern
             modulo = frames_to_skip + 1
             frames_to_process = (num_ocr_frames + modulo - 1) // modulo
+
+            logger.debug(
+                "OCR %s: %dx%d at %.3f fps, %d frames, range %s-%s = frames %d..%d "
+                "(%d frames, every %d), crop %r -> %r, full frame %s, brightness %s, "
+                "conf %d%%, similar image %.2f, similar pixel %d, decode height %s",
+                self.path, self.width, self.height, self.fps, self.num_frames,
+                time_start or "start", time_end or "end", ocr_start, ocr_end,
+                num_ocr_frames, modulo,
+                (crop_x, crop_y, crop_width, crop_height),
+                None if crop_x_start is None else (crop_x_start, crop_y_start, crop_x_end, crop_y_end),
+                self.use_fullframe, brightness_threshold, conf_threshold,
+                similar_image_threshold, similar_pixel_threshold, decode_height)
 
             # Set up progress tracking via unified tracker
             if progress is not None:
@@ -628,9 +667,14 @@ class Video:
         for frame in self.pred_frames:
             self._append_sub(PredictedSubtitle([frame], sim_threshold), max_frame_merge_diff)
         # Filter out empty subtitles and those too short (noise)
+        before = len(self.pred_subs)
         self.pred_subs = [sub for sub in self.pred_subs
                          if len(sub.frames[0].lines) > 0
                          and (sub.index_end - sub.index_start) >= min_duration_frames]
+        logger.debug("subtitles: %d frame(s) grouped into %d subtitle(s), %d kept "
+                     "(dropped %d empty or shorter than %.1fs)",
+                     len(self.pred_frames), before, len(self.pred_subs), before - len(self.pred_subs),
+                     min_duration_frames / self.fps if self.fps else 0.0)
 
     def _append_sub(self, sub: PredictedSubtitle, max_frame_merge_diff: int) -> None:
         if len(sub.frames) == 0:
@@ -668,6 +712,11 @@ class Video:
         else:
             results = ocr.ocr(frames)
         self._ocr_time += time.perf_counter() - ocr_start
+        # A result is normally a dict, but the OCR calling convention also
+        # allows a list-wrapped one (PredictedFrames below takes pred_data[0]),
+        # so count defensively rather than assuming a mapping.
+        logger.debug("OCR batch: %d frame(s), %d line(s) recognised, %.0f ms",
+                     len(frames), _count_lines(results), (time.perf_counter() - ocr_start) * 1000)
 
         # Create PredictedFrames for each result
         for pred_data, start_idx, end_idx, pts_start, pts_end in zip(results, start_indices, end_indices, pts_start_list, pts_end_list):

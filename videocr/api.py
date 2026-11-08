@@ -111,7 +111,8 @@ def get_subtitles(
         label_min_duration=1.0, label_max_duration=5.0, label_conf_threshold=95, label_conf_threshold_min=75,
         label_mask_crops=None,
         time_ranges: list[tuple[str, str]] | None = None,
-        progress_callback=None, subtitle_callback=None, cancel_event=None) -> str:
+        progress_callback=None, subtitle_callback=None, cancel_event=None,
+        tier=None) -> str:
 
     # Every production OCR run enters here (core/ocr_worker.py calls this and
     # save_subtitles_to_file, which wraps it). Refuse before decoding a single
@@ -150,11 +151,11 @@ def get_subtitles(
     # not hold a lease on -- nor keep one, or a result generator, past here.
     with ExitStack() as leases:
         ocr = leases.enter_context(
-            engine_registry.lease_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu))
+            engine_registry.lease_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu, tier))
         det_engine = None
         if detect_labels or only_labels:
             det_engine = leases.enter_context(
-                engine_registry.lease_detection_engine(det_model_dir, use_gpu))
+                engine_registry.lease_detection_engine(det_model_dir, use_gpu, tier))
 
         for i, (t_start, t_end) in enumerate(ranges):
             if cancel_event is not None and cancel_event.is_set():
@@ -195,7 +196,8 @@ def save_subtitles_to_file(
         detect_labels=True, only_labels=False,
         label_min_duration=1.0, label_max_duration=5.0, label_conf_threshold=95, label_conf_threshold_min=75,
         label_mask_crops=None,
-        progress_callback=None, subtitle_callback=None, cancel_event=None) -> None:
+        progress_callback=None, subtitle_callback=None, cancel_event=None,
+        tier=None) -> None:
     # Produce the text first, create the file second. Opening 'w+' up front
     # truncates before any work happens, so anything that refuses to run --
     # the backend guard above, a filter graph that cannot be built -- would
@@ -206,7 +208,8 @@ def save_subtitles_to_file(
         sim_threshold, use_fullframe, det_model_dir, rec_model_dir, use_gpu, brightness_threshold, similar_image_threshold, similar_pixel_threshold, frames_to_skip, crop_x, crop_y, crop_width, crop_height,
         detect_labels, only_labels, label_min_duration, label_max_duration, label_conf_threshold, label_conf_threshold_min,
         label_mask_crops,
-        progress_callback=progress_callback, subtitle_callback=subtitle_callback, cancel_event=cancel_event)
+        progress_callback=progress_callback, subtitle_callback=subtitle_callback, cancel_event=cancel_event,
+        tier=tier)
     # newline='\n': the same bytes on every OS (Windows' text mode writes CRLF).
     with open(file_path, 'w+', encoding='utf-8', newline='\n') as f:
         f.write(ass)

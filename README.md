@@ -30,6 +30,10 @@ Data lives in your user data folder:
 
 It holds `ocr-manager.log` and `models/`: the default languages read with the models bundled in the app, and a language whose script needs a different model (Cyrillic, Devanagari, Arabic, Thai, Greek, Korean, Tamil, Telugu, Georgian) downloads that one model on first use. `--download-models` fetches them all up front for offline use.
 
+Each folder picks its own **model size** in Folder settings → OCR engine → Model size: `tiny` is the quickest, `small` is the default, `medium` is the slowest and the most accurate on hard-to-read subtitles. All three sizes ship with the app for the default languages.
+
+`ocr-manager.log` records every run at debug detail — the decoder's probe and seeks, every OCR read with its scores, each crop probe and the score it needed to accept a box, and the label scan's phases. Set `OCR_MANAGER_LOG_LEVEL` (`debug`, `info`, `warning`, `error`, `critical`) to quieten it; it defaults to `debug`.
+
 ## Platform notes
 
 - The installer is not code-signed; SmartScreen may ask you to confirm (More info → Run anyway).

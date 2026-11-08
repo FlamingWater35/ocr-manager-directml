@@ -33,8 +33,8 @@ BOTH_OFF = "At least one of dialogue or labels must be on."
 SECTIONS = ["What to extract", "OCR engine", "Labels", "Performance", "Auto-pilot"]
 ROW_KEYS = {
     "What to extract": ["Dialogue subtitles", "Positioned labels / nameplates"],
-    "OCR engine": ["Language", "Create subfolder", "Confidence threshold", "Merge similar lines above",
-                   "Similar-frame threshold"],
+    "OCR engine": ["Language", "Model size", "Create subfolder", "Confidence threshold",
+                   "Merge similar lines above", "Similar-frame threshold"],
     # No "Confidence threshold": `label_conf_threshold` has no editor, see
     # NOT_IN_THE_SHEET and app/views/folder_settings_fields.py.
     "Labels": ["Minimum duration", "Maximum duration", "Minimum confidence", "Mask regions"],
@@ -369,6 +369,8 @@ ROUND_TRIPS = [
     ("dialogue_enabled", False, False, True, True),
     ("labels_enabled", False, False, True, True),
     ("ocr_lang", "Japanese", "japan", "en", "English"),
+    # A fixed-list pick, so the editor shows the whole line and stores the key.
+    ("ocr_model", "Medium — slowest, most accurate", "medium", "tiny", "Tiny — fastest, least accurate"),
     ("output_subfolder", False, False, True, True),
     ("conf_threshold", 90, 90, 97, 97),
     ("sim_threshold", 75, 75, 88, 88),

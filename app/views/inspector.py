@@ -11,15 +11,15 @@ bottom:
    in this session, the offer to re-detect the other files with it as a
    hint (`controller.hint_targets` counts them, ruling C3);
 6. footer (pinned below the scroll area) -- "✓ Mark reviewed (Space)" /
-   "Mark not reviewed" (disabled while the file is PENDING) and "skip file" /
-   "include file".
+   "Mark not reviewed" (disabled while the file is PENDING) and "Skip file" /
+   "Include file".
 
 A manual edit is noticed from `file_changed`: the file's crop box or
 brightness value differs from the last one seen and is now MANUAL. So an
 edit from anywhere (the tabs, the queue's paste) raises the offer for that
 file, while accepting a flagged value (same value, MANUAL) does not. Each
 edited kind keeps its own button; taking one offer leaves the other
-standing, and "apply to this file only" puts the whole offer away until the
+standing, and "Apply to this file only" puts the whole offer away until the
 next edit.
 
 Proof results live in the controller for the session. Whether one still
@@ -150,7 +150,7 @@ class Inspector(QWidget):
         footer_layout.setContentsMargins(tokens.px(12), tokens.px(10), tokens.px(12), tokens.px(10))
         footer_layout.setSpacing(tokens.px(6))
         self.review_button = Button(REVIEW_TEXT, "primary")
-        self.skip_button = Button("skip file", "ghost")
+        self.skip_button = Button("Skip file", "ghost")
         for button in (self.review_button, self.skip_button):
             button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.review_button.clicked.connect(self.toggle_reviewed)
@@ -234,7 +234,7 @@ class Inspector(QWidget):
         # detections are still running or because a value the file needs is
         # missing, and only the first is a wait (`mark_reviewed_tooltip`).
         self.review_button.setToolTip(mark_reviewed_tooltip(entry))
-        self.skip_button.setText("include file" if entry.skipped else "skip file")
+        self.skip_button.setText("Include file" if entry.skipped else "Skip file")
         self._refresh_offer()
 
     # --- commands -----------------------------------------------------------------------------
@@ -412,7 +412,7 @@ class Inspector(QWidget):
         self._refresh_offer()
 
     def _dismiss_offer(self) -> None:
-        """"apply to this file only": the edit stands, nothing else is
+        """"Apply to this file only": the edit stands, nothing else is
         re-detected, and the offer waits for the next edit of that file."""
         if self._file is not None:
             self._edited.pop(self._file, None)

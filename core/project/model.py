@@ -123,6 +123,7 @@ class FolderSettings:
     dialogue_enabled: bool = True
     labels_enabled: bool = True   # matches the v1 Config default (True) / its checked-by-default UI checkbox
     ocr_lang: str = "ch"
+    ocr_model: str = "small"      # PP-OCRv6 size: "tiny" | "small" | "medium" (videocr.ocr_engine.MODEL_TIERS)
     conf_threshold: int = 95
     sim_threshold: int = 82
     similar_image: float = 0.3

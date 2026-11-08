@@ -519,15 +519,21 @@ class JobRunner:
 
     def _execute(self, entry: _Entry) -> None:
         ctx = entry.ctx
+        logger.debug("job %s (%s) starting on lane %s", entry.key, entry.kind, entry.lane)
         ctx._send(ctx._event("started"))
+        started = time.monotonic()
         try:
             result = entry.job.run(ctx)
         except BaseException as exc:  # noqa: BLE001 - a job's failure must not end the worker
             terminal = ctx._event("failed", message=_first_line(exc),
                                   error=_format_traceback(exc))
+            logger.debug("job %s (%s) failed after %.2fs: %s", entry.key, entry.kind,
+                         time.monotonic() - started, _first_line(exc))
         else:
             outcome = "cancelled" if ctx._saw_cancel() else "finished"
             terminal = ctx._event(outcome, result=result)
+            logger.debug("job %s (%s) %s after %.2fs", entry.key, entry.kind, outcome,
+                         time.monotonic() - started)
         # Leave running() before the terminal event goes out, so a listener
         # reacting to it sees the job gone; this worker starts nothing else,
         # and no job with this key starts, until the event has been delivered.

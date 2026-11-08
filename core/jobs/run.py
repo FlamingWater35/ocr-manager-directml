@@ -108,6 +108,7 @@ Events (JobEvent.type; key and kind are "run")
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import threading
 import time
@@ -119,6 +120,8 @@ from core.jobs.runner import JobContext, Lane, _first_line, _format_traceback
 from core.project.layout import ProjectLayout, folder_layout, output_name
 from core.project.ocr_kwargs import OcrCall
 from videocr import api as _api
+
+logger = logging.getLogger(__name__)
 
 # output_name moved to core.project.layout; still importable from here.
 
@@ -324,6 +327,7 @@ class RunJob:
         name = run_file.name
         final = self.layout.output_path(name)
         partial = final + PARTIAL_SUFFIX
+        logger.debug("run: %s starting (output %s)", name, final)
         ctx.emit("run_file_started", file=name)
 
         def file_log(text: str) -> None:
@@ -331,6 +335,7 @@ class RunJob:
 
         file_log(f"Starting OCR: {name}\n")
         lines = 0
+        started = time.monotonic()
         try:
             _remove(partial)     # a leftover of an interrupted run is not this run's output
             self._ocr(ctx, run_file, partial, cancel_event, file_log)
@@ -338,6 +343,7 @@ class RunJob:
                 file_log("OCR cancelled.\n")
                 _remove(partial)
                 status, error = _CANCELLED, ERROR_CANCELLED
+                logger.debug("run: %s cancelled after %.1fs", name, time.monotonic() - started)
             elif os.path.exists(partial):
                 # Imported here, not at the top: ass_qafix loads jieba3's dictionaries
                 # (~0.5 s), and the window imports this module at startup.
@@ -350,13 +356,20 @@ class RunJob:
                 lines = counted
                 status, error = _OK, ""
                 file_log("OCR completed successfully.\n")
+                logger.debug("run: %s finished in %.1fs, %d dialogue line(s), %d fixed, %d deduped",
+                             name, time.monotonic() - started, counted, stats.fixed_lines,
+                             stats.duplicates_removed)
             else:
                 status, error = _FAILED, ERROR_NO_SUBTITLES
                 file_log(f"OCR failed: {ERROR_NO_SUBTITLES}\n")
+                logger.debug("run: %s produced no subtitles after %.1fs", name,
+                             time.monotonic() - started)
         except Exception as exc:  # noqa: BLE001 - one file's failure must not stop the others
             status, error = _FAILED, _first_line(exc)
             traceback_text = _format_traceback(exc)
             file_log(f"OCR failed: {_message(exc)}\n{traceback_text}")
+            logger.debug("run: %s failed after %.1fs: %s", name, time.monotonic() - started,
+                         _first_line(exc))
             try:
                 _remove(partial)
             except Exception as cleanup:  # noqa: BLE001
@@ -372,6 +385,9 @@ class RunJob:
         kwargs = copy.deepcopy(run_file.call.kwargs)
         time_ranges = list(run_file.call.time_ranges)
         progress_callback = _progress_reporter(ctx, name)
+        logger.debug("run: %s OCR with %d time range(s), lang %r, tier %r, gpu %s",
+                     name, len(time_ranges), kwargs.get("lang"), kwargs.get("tier"),
+                     kwargs.get("use_gpu"))
 
         def subtitle_callback(start, end, text):
             ctx.emit("run_subtitle", file=name, result=(start, end, text))

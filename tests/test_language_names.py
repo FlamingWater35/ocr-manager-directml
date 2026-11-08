@@ -14,7 +14,8 @@ import re
 
 import pytest
 
-from app.views.folder_settings_fields import LANGUAGE_NAMES, LANGUAGES, language_label
+from app.views.folder_settings_fields import LANGUAGE_NAMES, LANGUAGES, MODEL_CHOICES, language_label
+from core.project import FolderSettings
 from core.project.languages import output_tag
 from videocr import ocr_engine
 
@@ -42,7 +43,27 @@ def test_the_bundled_route_covers_the_languages_it_claims():
     the one that works offline out of the box."""
     bundled = {code for code in LANGUAGE_NAMES if ocr_engine.route_for(code).version == "PP-OCRv6"}
     assert "ch" in bundled and "en" in bundled and "japan" in bundled
-    assert not ocr_engine._needs_download(ocr_engine.route_for("ch"))
+    download_keys = {key for _route, key in ocr_engine.downloadable_models()}
+    assert ocr_engine.route_model_key(ocr_engine.route_for("ch")) not in download_keys
+
+
+def test_every_tier_is_downloadable_except_the_bundled_default():
+    """tiny and medium ship with the app but are fetched by the packager, so
+    they are the tiers --download-models has to fetch; small is in the wheel."""
+    tiers = ocr_engine.downloadable_tiers()
+    assert {tier for _task, tier, _key in tiers} == set(ocr_engine.MODEL_TIERS) - {ocr_engine.DEFAULT_MODEL_TIER}
+    assert {task for task, _tier, _key in tiers} == {"det", "rec"}
+    assert len(tiers) == 4
+
+
+def test_the_model_picker_offers_every_tier_the_engine_builds():
+    """The sheet's list is static so it can draw without the engine loaded;
+    this holds it against the engine's own tiers, in the same order, naming
+    the same trade-off, with `small` as the one a new folder starts on."""
+    assert [value for value, _text in MODEL_CHOICES] == list(ocr_engine.MODEL_TIERS)
+    for value, text in MODEL_CHOICES:
+        assert ocr_engine.tier_description(value).split(",")[0].split(" ")[0] in text, (value, text)
+    assert FolderSettings().ocr_model == ocr_engine.DEFAULT_MODEL_TIER == "small"
 
 
 def test_the_list_is_sorted_by_name_and_every_label_is_unique():

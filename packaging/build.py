@@ -12,12 +12,15 @@ Stdlib only; any Python 3.11+ runs it. What it builds:
                             onnxruntime-directml included
     <root>/src/             main.py, app/, core/, videocr/, resources/
     <root>/bin/             static ffmpeg + ffprobe (put on PATH by the launcher)
+    <root>/models/          PP-OCRv6 detector and recogniser, tiny and medium
+                            (the wheel already carries small)
     <root>/licenses/        third-party notices
     <root>/bundle.json      {"version", "os", "arch"}
 
 Nothing is installed on first run any more: the OCR engine is part of the
-bundle, so a fresh copy reads subtitles immediately. The only thing fetched at
-run time is a recognition model for a language PP-OCRv6 does not cover, into
+bundle, and so are all three PP-OCRv6 model sizes, so a fresh copy reads
+subtitles immediately at whichever size a folder picks. The only thing fetched
+at run time is a recognition model for a language PP-OCRv6 does not cover, into
 the user's data folder (`--download-models` prefetches all of them).
 
 Artifacts, named ocr-manager-v<X.Y.Z>-win.<ext>: .exe (per-user Inno Setup
@@ -66,6 +69,22 @@ FFMPEG = {
     "win": [(_BTBN + "ffmpeg-n8.1.2-50-g1a748fe2cd-win64-lgpl-8.1.zip",
              "f6274bbd9c247f9e90c1bbed066b03ed4a3907cece2fb91be6dd352393936365")],
 }
+
+# The PP-OCRv6 sizes the rapidocr wheel does not carry (it ships `small`
+# only). Both the detector and the recogniser, because a folder set to tiny or
+# medium reads with both. Same files and digests RapidOCR's own
+# `default_models.yaml` names for v3.10.0.
+_MODELSCOPE = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv6/"
+OCR_MODELS = [
+    (_MODELSCOPE + "det/PP-OCRv6_det_tiny.onnx",
+     "f42c0fbd294d95eac1a550e131b277dac97462c8025fa4b6c3cec1b7894bd3d5"),
+    (_MODELSCOPE + "rec/PP-OCRv6_rec_tiny.onnx",
+     "e16e242de5937ad92609223f19bc2aff3727ee40b095f996907c24749bad251b"),
+    (_MODELSCOPE + "det/PP-OCRv6_det_medium.onnx",
+     "92078b7355007ccfffcd4c8cd441a3afd4538904d06881b29a155e1e679907c2"),
+    (_MODELSCOPE + "rec/PP-OCRv6_rec_medium.onnx",
+     "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b"),
+]
 
 # The MSVC runtime the bundled wheels (onnxruntime, PyQt6, OpenCV, scipy) link
 # against, shipped app-local next to python.exe so no VC++ redistributable
@@ -312,6 +331,22 @@ def install_ffmpeg(root: Path, os_name: str, cache: Path) -> None:
         path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def install_models(root: Path, cache: Path) -> None:
+    """Ship all three PP-OCRv6 sizes in `<root>/models`.
+
+    The wheel already carries `small`; `tiny` and `medium` are fetched here so
+    a released build never downloads a model, whatever size a folder is set
+    to. `videocr.ocr_engine.bundled_model` finds them beside `bin/`, so they
+    are read without touching the per-user cache.
+    """
+    log("adding the PP-OCRv6 tiny and medium models")
+    models = root / "models"
+    models.mkdir()
+    for url, digest in OCR_MODELS:
+        source = fetch(url, cache, digest)
+        shutil.copy2(source, models / source.name)
+
+
 def write_notices(root: Path, os_name: str) -> None:
     ffmpeg_src = "BtbN/FFmpeg-Builds (LGPL build), https://github.com/BtbN/FFmpeg-Builds"
     text = f"""OCR Manager bundles third-party software. Each keeps its own license.
@@ -325,8 +360,8 @@ def write_notices(root: Path, os_name: str) -> None:
   source is available at https://ffmpeg.org/download.html and from the
   build project above.
 - RapidOCR: Apache License 2.0. The PP-OCR models it carries in
-  site-packages/rapidocr/models are published by PaddlePaddle (Apache
-  License 2.0).
+  site-packages/rapidocr/models, and the tiny and medium sizes in models/,
+  are published by PaddlePaddle (Apache License 2.0).
 - ONNX Runtime and DirectML (onnxruntime-directml): MIT License, with the
   DirectML redistributable under the Microsoft Windows SDK terms.
 """
@@ -348,6 +383,7 @@ def build_tree(root: Path, version: str, os_name: str, arch: str, cache: Path) -
     prune_qt(root, os_name)
     copy_sources(root)
     install_ffmpeg(root, os_name, cache)
+    install_models(root, cache)
     write_notices(root, os_name)
     write_metadata(root, version, os_name, arch)
     compile_bytecode(root, os_name)

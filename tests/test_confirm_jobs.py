@@ -197,8 +197,8 @@ def ocr_engine(monkeypatch):
     built, so a test can pin the lease's arguments."""
     engine = _ScriptedOCR({230: (TEXT, 0.99), 220: (TEXT, 0.99)})
 
-    def build(lang, det_model_dir, rec_model_dir, use_gpu):
-        engine.build_args = (lang, det_model_dir, rec_model_dir, use_gpu)
+    def build(lang, det_model_dir, rec_model_dir, use_gpu, tier=None):
+        engine.build_args = (lang, det_model_dir, rec_model_dir, use_gpu, tier)
         return engine
 
     monkeypatch.setattr(engine_registry, "_build_ocr_engine", build)
@@ -275,7 +275,7 @@ def test_a_confirm_job_captures_its_inputs_so_a_later_edit_cannot_change_it(tmp_
 
     job.run(_ctx(job))
 
-    assert ocr_engine.build_args == ("chinese_cht", None, None, False)
+    assert ocr_engine.build_args == ("chinese_cht", None, None, False, "small")
 
 
 def test_a_confirm_job_calls_confirm_brightness_with_what_it_captured(tmp_path, ocr_engine, monkeypatch):
@@ -394,7 +394,7 @@ def test_a_confirm_job_that_cannot_read_its_strip_reports_no_value_rather_than_f
 def test_a_confirm_job_leases_only_an_ocr_engine(tmp_path, ocr_engine, monkeypatch):
     # The strip is a time the file's evidence already named, so there is
     # nothing for a detection engine to find.
-    def build_detection(det_model_dir, use_gpu):
+    def build_detection(det_model_dir, use_gpu, tier=None):
         raise AssertionError("a confirm needs no text detection")
 
     monkeypatch.setattr(engine_registry, "_build_detection_engine", build_detection)

@@ -538,8 +538,8 @@ def test_hud_shows_phase_position_eta_and_speed(qapp):
 
 
 @pytest.mark.parametrize("dialogue, labels, phase, title, step", [
-    (True, True, "Extracting dialogue", "Dialogue", "step 1 of 2"),
-    (True, True, "Extracting labels", "Labels", "step 2 of 2"),
+    (True, True, "Extracting dialogue", "Dialogue", "Step 1 of 2"),
+    (True, True, "Extracting labels", "Labels", "Step 2 of 2"),
     (True, False, "Extracting dialogue", "Dialogue", ""),
     (False, True, "Extracting labels", "Labels", ""),
 ])

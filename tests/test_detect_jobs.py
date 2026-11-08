@@ -1804,13 +1804,13 @@ def fake_engines(monkeypatch):
     """Patch the registry's builders: every build is a recorded fake engine."""
     built = {"det": [], "ocr": []}
 
-    def build_detection(det_model_dir, use_gpu):
-        engine = SimpleNamespace(kind="det", args=(det_model_dir, use_gpu))
+    def build_detection(det_model_dir, use_gpu, tier=None):
+        engine = SimpleNamespace(kind="det", args=(det_model_dir, use_gpu, tier))
         built["det"].append(engine)
         return engine
 
-    def build_ocr(lang, det_model_dir, rec_model_dir, use_gpu):
-        engine = SimpleNamespace(kind="ocr", args=(lang, det_model_dir, rec_model_dir, use_gpu))
+    def build_ocr(lang, det_model_dir, rec_model_dir, use_gpu, tier=None):
+        engine = SimpleNamespace(kind="ocr", args=(lang, det_model_dir, rec_model_dir, use_gpu, tier))
         built["ocr"].append(engine)
         return engine
 
@@ -1881,7 +1881,7 @@ def test_crop_job_calls_detect_crop_with_the_documented_arguments(monkeypatch, f
     assert call["consensus"] == [(0.72, 0.05), (0.73, 0.049)]
     assert call["settings"] == {"crop_width_fraction": 0.8, "crop_vertical_padding": 0.01,
                                 "crop_min_height_fraction": 0.06, "bottom_half_cutoff": 0.5}
-    assert [e.args for e in fake_engines["det"]] == [(None, False)]
+    assert [e.args for e in fake_engines["det"]] == [(None, False, "small")]
     assert call["det_engine"] is fake_engines["det"][0]
     assert fake_engines["ocr"] == []
     assert _idle(engine_registry._idle_detection_engines) == [fake_engines["det"][0]]
@@ -1968,8 +1968,8 @@ def test_brightness_job_calls_detect_brightness_with_the_documented_arguments(mo
     assert tuple(call["crop_box"]) == NEW_BOX
     assert [tuple(pair) for pair in call["time_ranges"]] == [("02:33", "21:20"), ("22:00", None)]
     assert call["folder_plateau"] == (190, 235)
-    assert [e.args for e in fake_engines["det"]] == [(None, False)]
-    assert [e.args for e in fake_engines["ocr"]] == [("chinese_cht", None, None, False)]
+    assert [e.args for e in fake_engines["det"]] == [(None, False, "small")]
+    assert [e.args for e in fake_engines["ocr"]] == [("chinese_cht", None, None, False, "small")]
     assert call["det_engine"] is fake_engines["det"][0]
     assert call["ocr_engine"] is fake_engines["ocr"][0]
     cancel = call["cancel_check"]
@@ -2089,7 +2089,7 @@ def test_lines_job_calls_sample_lines_with_the_documented_arguments(monkeypatch,
     assert call["count"] == lines_mod.LINE_COUNT
     assert call["seed"] == 7
     assert list(call["exclude"]) == [100.0, 200.0]
-    assert [e.args for e in fake_engines["det"]] == [(None, False)]
+    assert [e.args for e in fake_engines["det"]] == [(None, False, "small")]
     assert call["det_engine"] is fake_engines["det"][0]
     assert fake_engines["ocr"] == []                       # text detection only: no OCR engine
     assert _idle(engine_registry._idle_detection_engines) == [fake_engines["det"][0]]

@@ -37,6 +37,7 @@ import traceback
 from app.bootstrap import Boot
 from core import ffmpeg as ffmpeg_tool
 from core.proc import TEXT_ENCODING, hidden_child
+from core.runtime import logsetup
 from app.version import __version__
 
 PACKAGES = ("app", "core", "videocr")
@@ -164,6 +165,7 @@ def self_test(boot: Boot) -> int:
         "tools": tools,
         "decoder": decoder_report,
         "engine": engine_report(boot),
+        "logging": logsetup.describe(),
     }
     _emit(json.dumps(report, indent=2, ensure_ascii=False))
     return EXIT_OK if ok else EXIT_FAIL

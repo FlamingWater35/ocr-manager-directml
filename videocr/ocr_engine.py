@@ -57,6 +57,51 @@ V6 = ("PP-OCRv6", "small")
 V5 = ("PP-OCRv5", "mobile")
 V4 = ("PP-OCRv4", "mobile")
 
+# --- model sizes ----------------------------------------------------------
+#
+# PP-OCRv6 comes in three sizes and the user picks one per folder. They are the
+# same architecture at three widths, so the choice trades speed against
+# accuracy and nothing else in the pipeline changes.
+#
+# `small` is the default because it is what the wheel carries and what every
+# measurement in this codebase was taken with. `tiny` is ~5x smaller than
+# `small` and noticeably quicker on a weak GPU; `medium` is ~6x larger and the
+# most accurate, at roughly 3x the inference time of `small`.
+#
+# Only `small` is in the wheel. `tiny` and `medium` are fetched once into the
+# model cache (`<data>/models`) the first time a folder asks for them, and the
+# Windows bundle ships all three so a released build never downloads at all.
+MODEL_TIERS = ("tiny", "small", "medium")
+DEFAULT_MODEL_TIER = "small"
+
+# Where each tier's models come from. RapidOCR's own resolver knows these URLs
+# (its `default_models.yaml`), so nothing here has to duplicate them: a tier
+# that is not bundled is simply left to RapidOCR to fetch into the cache.
+_TIER_DESCRIPTIONS = {
+    "tiny": "fastest, least accurate",
+    "small": "balanced (default)",
+    "medium": "slowest, most accurate",
+}
+
+
+def tier_description(tier: str) -> str:
+    """The one-line explanation the settings sheet shows under the picker."""
+    return _TIER_DESCRIPTIONS.get(tier, "")
+
+
+def normalise_tier(tier: str | None) -> str:
+    """A tier name that is safe to build an engine with.
+
+    An unknown or missing value falls back to the default rather than failing:
+    a project file written by a newer build, or a hand-edited one, should not
+    stop a run.
+    """
+    if tier in MODEL_TIERS:
+        return tier
+    if tier:
+        logger.warning("unknown OCR model size %r; using %s", tier, DEFAULT_MODEL_TIER)
+    return DEFAULT_MODEL_TIER
+
 
 @dataclass(frozen=True)
 class Route:
@@ -170,6 +215,22 @@ def downloadable_models() -> tuple[tuple[Route, str], ...]:
     return tuple(out)
 
 
+def downloadable_tiers() -> tuple[tuple[str, str, str], ...]:
+    """(task, tier, model key) for the PP-OCRv6 sizes the wheel does not carry.
+
+    The default size is bundled, so `--download-models` only has to fetch the
+    other two -- detector and recogniser alike, because a folder set to `tiny`
+    or `medium` reads with both.
+    """
+    out = []
+    for tier in MODEL_TIERS:
+        if tier == DEFAULT_MODEL_TIER:
+            continue
+        for task in ("det", "rec"):
+            out.append((task, tier, f"{DET_MODEL[0]}_{task}_{tier}"))
+    return tuple(out)
+
+
 # --- the device ------------------------------------------------------------
 
 _DML: bool | None = None
@@ -203,6 +264,8 @@ def dml_available() -> bool:
                 _DML = False
             if not _DML:
                 logger.info("no DirectML provider; OCR runs on the CPU")
+            else:
+                logger.debug("DirectML is available: %s", providers)
         return _DML
 
 
@@ -252,28 +315,81 @@ def default_model_dir():
         return None
 
 
-def bundled_model(name: str):
-    """The absolute path of a model shipped inside the rapidocr wheel.
+def model_dirs() -> tuple[Path, ...]:
+    """Every directory a model may already sit in, most specific first.
 
-    None when this rapidocr build does not carry it (an older or a slimmed
-    wheel), which leaves RapidOCR to download that model instead.
+    1. `<checkout>/models` -- a developer checkout that fetched the extra
+       sizes once (the same shape the bundle uses);
+    2. `<checkout>/../models` -- the bundle's own `models/`, when the sources
+       live in `<bundle>/src` beside `bin/`;
+    3. the per-user cache (`default_model_dir()`), where RapidOCR downloads
+       anything it does not find above.
+
+    The wheel's own `rapidocr/models/` is handled separately in
+    `bundled_model`, because it is looked up through the package rather than
+    through a path.
     """
+    dirs: list[Path] = []
+    try:
+        from core.runtime.paths import source_root
+
+        root = Path(source_root())
+        dirs.extend((root / "models", root.parent / "models"))
+    except Exception:                               # noqa: BLE001 - no layout, no bundle models
+        pass
+    cache = default_model_dir()
+    if cache is not None:
+        dirs.append(Path(cache))
+    return tuple(dirs)
+
+
+def bundled_model(name: str):
+    """The absolute path of a model this build already has on disk.
+
+    Searched in this order: inside the rapidocr wheel (`rapidocr/models/`,
+    which carries the PP-OCRv6 `small` detector, recogniser and the
+    orientation classifier), then the app's own `models/` folders -- where the
+    released Windows build ships all three PP-OCRv6 sizes -- then the per-user
+    cache that RapidOCR downloads into. See `model_dirs`.
+
+    None when no copy exists, which leaves RapidOCR to fetch that model into
+    the cache itself.
+    """
+    candidates = []
     try:
         import rapidocr
 
-        path = Path(rapidocr.__file__).resolve().parent / "models" / name
+        candidates.append(Path(rapidocr.__file__).resolve().parent / "models" / name)
     except Exception:                               # noqa: BLE001 - a missing wheel model is not fatal
-        return None
-    return path if path.is_file() else None
+        pass
+    candidates.extend(directory / name for directory in model_dirs())
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
 
 
-def _params(device: str, route: Route | None, model_root_dir) -> dict:
+def _params(device: str, route: Route | None, model_root_dir,
+            tier: str = DEFAULT_MODEL_TIER) -> dict:
     """RapidOCR's `params` dict. Values for the enum-typed keys MUST be the
     enum members, not strings: `ParseParams.update_batch` rejects a string with
-    "The value of Det.model_type must be Enum Type."."""
+    "The value of Det.model_type must be Enum Type.".
+
+    `tier` picks the PP-OCRv6 size for both the detector and (when the
+    language is covered by PP-OCRv6) the recogniser. A route pinned to another
+    version -- PP-OCRv5 for Cyrillic, say -- keeps its own model and is
+    unaffected: those versions have no size tiers here.
+    """
     from rapidocr import ModelType, OCRVersion
 
+    tier = normalise_tier(tier)
     det_version, det_type = DET_MODEL
+    det_type = tier
+    # The size applies to PP-OCRv6 only. A route on another version -- PP-OCRv5
+    # for Cyrillic, PP-OCRv4 for a few scripts -- has no tiny/medium weights,
+    # so it keeps its own and the picker does not change its accuracy.
+    rec_type = tier if (route is not None and (route.version, route.model_type) == V6) \
+        else (route.model_type if route is not None else None)
     params = {
         "Global.log_level": "warning",
         "EngineConfig.onnxruntime.use_dml": device == DML,
@@ -283,26 +399,35 @@ def _params(device: str, route: Route | None, model_root_dir) -> dict:
     }
     if route is not None:
         params["Rec.ocr_version"] = OCRVersion(route.version)
-        params["Rec.model_type"] = ModelType(route.model_type)
+        params["Rec.model_type"] = ModelType(rec_type)
         params["Rec.lang_type"] = route.lang_type
 
     # The bundled models are named explicitly rather than left to
     # `Global.model_root_dir`, which takes precedence over the wheel: setting
     # only the cache directory re-downloads the 30 MB PP-OCRv6 pair the wheel
     # already carries (measured: det 9.47 MB + cls 0.56 MB + rec 20.25 MB on
-    # the first engine build). Only a recognition model that is *not* bundled
-    # is resolved from the cache, and downloaded there on first use.
+    # the first engine build). A model that is NOT there -- a size the wheel
+    # does not carry, or a language on another PP-OCR version -- is left to
+    # RapidOCR, which downloads it into `Global.model_root_dir` on first use.
+    # The released Windows bundle ships all three sizes in that same folder,
+    # so a packaged build never downloads at all.
     for section, name in (("Det", _bundled_name("det", det_version, det_type)),
                           ("Cls", BUNDLED_CLS_FILE)):
         path = bundled_model(name)
         if path is not None:
             params[f"{section}.model_path"] = str(path)
-    if not _needs_download(route):
-        path = bundled_model(_bundled_name("rec", *V6))
+    if route is not None:
+        path = bundled_model(_bundled_name("rec", route.version, tier))
         if path is not None:
             params["Rec.model_path"] = str(path)
     if model_root_dir:
         params["Global.model_root_dir"] = str(model_root_dir)
+    logger.debug("OCR params: device=%s tier=%s route=%s -> det %s/%s, rec %s/%s, "
+                 "bundled det=%s rec=%s", device, tier,
+                 None if route is None else f"{route.lang_type}@{route.version}",
+                 det_version, det_type,
+                 None if route is None else route.version, None if route is None else rec_type,
+                 params.get("Det.model_path"), params.get("Rec.model_path"))
     return params
 
 
@@ -312,12 +437,6 @@ def _bundled_name(task: str, version: str, model_type: str) -> str:
     `PP-OCRv6` + `det` + `small` -> "PP-OCRv6_det_small.onnx".
     """
     return f"{version}_{task}_{model_type}.onnx"
-
-
-def _needs_download(route: Route | None) -> bool:
-    """True when this route's recognition model is not the bundled PP-OCRv6
-    pair (the detector is always bundled, and script-agnostic)."""
-    return route is not None and (route.version, route.model_type) != V6
 
 
 class RapidEngine:
@@ -330,16 +449,18 @@ class RapidEngine:
     name the pre-3.0 code used.
     """
 
-    def __init__(self, engine, device: str, route: Route | None = None, kind: str = "ocr"):
+    def __init__(self, engine, device: str, route: Route | None = None, kind: str = "ocr",
+                 tier: str = DEFAULT_MODEL_TIER):
         self.engine = engine
         self.device = device
         self.route = route
         self.kind = kind
+        self.tier = normalise_tier(tier)
         self.providers = provider_names(engine)
 
     def __repr__(self) -> str:                       # pragma: no cover - debugging aid
         route = f" route={self.route.lang_type}@{self.route.version}" if self.route else ""
-        return f"<RapidEngine {self.kind} {self.device}{route} {self.providers}>"
+        return f"<RapidEngine {self.kind} {self.device} {self.tier}{route} {self.providers}>"
 
     def warm_up(self) -> list[str]:
         """Build every session this engine needs and return their providers.
@@ -371,16 +492,22 @@ class RapidEngine:
         result = self.engine(image)
         texts = getattr(result, "txts", None)
         if texts is None:                  # nothing found: a bare RapidOCROutput
+            logger.debug("OCR read %dx%d: no text (detection found nothing above the "
+                         "score threshold)", image.shape[1], image.shape[0])
             return {"rec_texts": [], "rec_scores": [], "rec_polys": []}
         boxes = getattr(result, "boxes", None)
         scores = getattr(result, "scores", None)
-        return {
+        out = {
             "rec_texts": [str(text) for text in texts],
             "rec_scores": [float(score) for score in scores],
             "rec_polys": [
                 np.asarray(box, dtype=np.float32).reshape(-1, 2) for box in boxes
             ],
         }
+        logger.debug("OCR read %dx%d: %d line(s), scores %s, texts %r",
+                     image.shape[1], image.shape[0], len(out["rec_texts"]),
+                     [round(s, 4) for s in out["rec_scores"]], out["rec_texts"])
+        return out
 
     # -- detection only ----------------------------------------------------
 
@@ -388,12 +515,18 @@ class RapidEngine:
         result = self.engine(image)
         boxes = getattr(result, "boxes", None)
         if boxes is None:                  # a bare RapidOCROutput: no text found
+            logger.debug("text detection on %dx%d: nothing found", image.shape[1], image.shape[0])
             return {"dt_polys": np.zeros((0, 4, 2), dtype=np.float32), "dt_scores": []}
         scores = getattr(result, "scores", None)
-        return {
+        out = {
             "dt_polys": np.asarray(boxes, dtype=np.float32).reshape(-1, 4, 2),
             "dt_scores": [float(score) for score in scores],
         }
+        logger.debug("text detection on %dx%d: %d box(es), scores %s, first box %s",
+                     image.shape[1], image.shape[0], len(out["dt_scores"]),
+                     [round(s, 4) for s in out["dt_scores"]],
+                     out["dt_polys"][0].tolist() if len(out["dt_polys"]) else None)
+        return out
 
     def predict(self, images) -> Iterator[dict]:
         """One result dict per image, in order.
@@ -413,14 +546,15 @@ class RapidEngine:
         return list(self.predict(images))
 
 
-def _build(params: dict, device: str, route: Route | None, kind: str) -> RapidEngine:
+def _build(params: dict, device: str, route: Route | None, kind: str,
+           tier: str = DEFAULT_MODEL_TIER) -> RapidEngine:
     from rapidocr import RapidOCR
 
     from .utils import suppress_output
 
     with suppress_output():
         engine = RapidOCR(params=params)
-    built = RapidEngine(engine, device, route, kind)
+    built = RapidEngine(engine, device, route, kind, tier)
 
     # RapidOCR only warns when DirectML was asked for and not given, then runs
     # on the CPU. Ask for a provider and check we got it: a silent 20x
@@ -431,23 +565,28 @@ def _build(params: dict, device: str, route: Route | None, kind: str) -> RapidEn
         logger.warning(
             "DirectML was requested but the session got %s; OCR runs on the CPU", got
         )
-    logger.info("OCR engine ready on %s (%s)", device, ", ".join(got) or "no session yet")
+    logger.info(
+        "OCR engine ready: %s, %s model, providers %s",
+        device, built.tier, ", ".join(got) or "none built yet",
+    )
     return built
 
 
 def create_ocr_engine(lang, det_model_dir=None, rec_model_dir=None, use_gpu=True,
-                      model_root_dir=_UNSET):
+                      model_root_dir=_UNSET, tier=DEFAULT_MODEL_TIER):
     """A full engine (detection + recognition) for `lang`.
 
     `det_model_dir` / `rec_model_dir` are PaddleOCR's custom-model arguments and
     are accepted for call-site compatibility only: RapidOCR resolves its own
     models, and the app has no UI for either.
 
-    `model_root_dir` is where a recognition model that is not in the wheel is
-    cached (and downloaded to on first use); it defaults to
-    `default_model_dir()`. The bundled PP-OCRv6 pair is always read from the
-    wheel, so a machine that only ever sees its own language downloads
-    nothing.
+    `model_root_dir` is where a model that is not in the wheel is cached (and
+    downloaded to on first use); it defaults to `default_model_dir()`.
+
+    `tier` is the PP-OCRv6 size -- "tiny", "small" or "medium"
+    (`MODEL_TIERS`). The default "small" is the pair the wheel carries, so a
+    folder that never changes it downloads nothing; the other two are fetched
+    into the cache once. An unknown value falls back to the default.
     """
     device = resolve_device(use_gpu)
     route = route_for(lang)
@@ -457,19 +596,21 @@ def create_ocr_engine(lang, det_model_dir=None, rec_model_dir=None, use_gpu=True
             det_model_dir, rec_model_dir,
         )
     root = default_model_dir() if model_root_dir is _UNSET else model_root_dir
-    return _build(_params(device, route, root), device, route, "ocr")
+    tier = normalise_tier(tier)
+    return _build(_params(device, route, root, tier), device, route, "ocr", tier)
 
 
-def create_detection_engine(det_model_dir=None, use_gpu=True):
+def create_detection_engine(det_model_dir=None, use_gpu=True, tier=DEFAULT_MODEL_TIER):
     """A detection-only engine for label scanning.
 
-    The bundled PP-OCRv6 detector reads every script, so this needs no
-    download and no language.
+    The PP-OCRv6 detector reads every script, so this needs no language. `tier`
+    picks its size, exactly as `create_ocr_engine` does.
     """
     device = resolve_device(use_gpu)
-    params = _params(device, None, None)
+    tier = normalise_tier(tier)
+    params = _params(device, None, None, tier)
     params.update({"Global.use_det": True, "Global.use_cls": False, "Global.use_rec": False})
-    return _build(params, device, None, "det")
+    return _build(params, device, None, "det", tier)
 
 
 def _cancelled(cancel) -> bool:
@@ -483,34 +624,40 @@ def _cancelled(cancel) -> bool:
 
 
 def download_models(model_root_dir=None, progress=None, cancel=None) -> list[str]:
-    """Fetch every recognition model a language can route to into
-    `model_root_dir`.
+    """Fetch every model a folder could ask for that is not already on disk
+    into `model_root_dir`.
 
-    Only the recognition models are fetched: detection is the bundled
-    PP-OCRv6 detector for every language, and it is script-agnostic. Returns
-    the model keys that had to be fetched. `model_root_dir` defaults to
-    `default_model_dir()`, the directory the engines read from, so a
-    download here is a download they will find. `cancel` is a predicate or a
-    `threading.Event`. Raises on failure, and `RuntimeError("cancelled")`
-    when cancelled.
+    Two things are fetched: the recognition model of every language whose
+    route PP-OCRv6 does not cover, and the PP-OCRv6 detector and recogniser
+    for the non-default sizes (`tiny`, `medium`). Returns the model keys that
+    had to be fetched. `model_root_dir` defaults to `default_model_dir()`, the
+    directory the engines read from, so a download here is a download they
+    will find. `cancel` is a predicate or a `threading.Event`. Raises on
+    failure, and `RuntimeError("cancelled")` when cancelled.
     """
     model_root_dir = default_model_dir() if model_root_dir is None else model_root_dir
     if model_root_dir is None:
         raise RuntimeError("no model cache directory to download into")
     models = downloadable_models()
-    if not models:
+    tiers = downloadable_tiers()
+    if not models and not tiers:
         return []
 
     from rapidocr import ModelType, OCRVersion, RapidOCR
 
     from .utils import suppress_output
 
+    total = len(models) + len(tiers)
     fetched: list[str] = []
+
+    def report(index: int, key: str) -> None:
+        if progress is not None:
+            progress(index, total, key)
+
     for index, (route, key) in enumerate(models):
         if _cancelled(cancel):
             raise RuntimeError("cancelled")
-        if progress is not None:
-            progress(index, len(models), key)
+        report(index, key)
         params = {
             "Global.log_level": "warning",
             "Global.model_root_dir": str(model_root_dir),
@@ -525,5 +672,29 @@ def download_models(model_root_dir=None, progress=None, cancel=None) -> list[str
             # Models load lazily, so ask for the recogniser directly: that is
             # what downloads, and it skips building the detector's session.
             RapidOCR(params=params)._load_rec_model()
+        fetched.append(key)
+
+    for offset, (task, tier, key) in enumerate(tiers):
+        if _cancelled(cancel):
+            raise RuntimeError("cancelled")
+        report(len(models) + offset, key)
+        params = {
+            "Global.log_level": "warning",
+            "Global.model_root_dir": str(model_root_dir),
+            "EngineConfig.onnxruntime.use_dml": False,
+            "Det.ocr_version": OCRVersion(DET_MODEL[0]),
+            "Det.model_type": ModelType(tier),
+            "Rec.ocr_version": OCRVersion(V6[0]),
+            "Rec.model_type": ModelType(tier),
+            "Rec.lang_type": LangRec.CH.value if hasattr(LangRec.CH, "value") else "ch",
+        }
+        with suppress_output():
+            engine = RapidOCR(params=params)
+            # Ask for the half this entry is about: building both would fetch
+            # the other one twice.
+            if task == "det":
+                engine._load_det_model()
+            else:
+                engine._load_rec_model()
         fetched.append(key)
     return fetched
