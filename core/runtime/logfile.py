@@ -1,10 +1,9 @@
 """Give the process a real stdout/stderr when it was started without one.
 
 Under pythonw.exe (Windows, no console) `sys.stdout`/`sys.stderr` are None
-and file descriptors 1 and 2 are not open; a macOS app started from Finder
-writes them to /dev/null. `videocr.utils.suppress_output()` os.dup()s fds 1
-and 2 around every engine build, so without real descriptors every engine
-build raises. `redirect_if_needed()` opens `<data>/logs/ocr-manager.log`
+and file descriptors 1 and 2 are not open.
+`videocr.utils.suppress_output()` os.dup()s fds 1 and 2 around every engine
+build, so without real descriptors every engine build raises. `redirect_if_needed()` opens `<data>/logs/ocr-manager.log`
 (the previous run's log kept as `ocr-manager.log.1`), dup2()s it onto fds 1
 and 2 and rebinds sys.stdout/sys.stderr to it.
 """

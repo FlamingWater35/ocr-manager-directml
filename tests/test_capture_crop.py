@@ -3,7 +3,7 @@ import subprocess
 import numpy as np
 import pytest
 
-from videocr.pyav_adapter import PyAVCapture
+from videocr.ffmpeg_capture import FFmpegCapture
 
 CROP = (64, 120, 192, 64)  # x, y, w, h inside a 320x240 frame
 
@@ -52,40 +52,46 @@ NO_GRAPH_FORMATS = [
 
 
 @pytest.mark.parametrize("pix_fmt, codec", NO_GRAPH_FORMATS)
-def test_crop_refused_when_no_filter_graph_is_needed(tmp_path, pix_fmt, codec):
-    """A crop must never be the sole reason a filter graph exists.
+def test_crop_is_exact_even_without_a_downscale(tmp_path, pix_fmt, codec):
+    """A crop must be pixel-identical to slicing the full frame, at every bit
+    depth -- no approximation is acceptable, because a probe frame that is
+    "close enough" to the OCR pass's frame is a crop box that is close enough.
 
-    With no graph, read() converts via `frame.to_ndarray(format='bgr24')`;
-    with one, via a `format=bgr24` filter node. The two disagree for any
-    source deeper than 8 bits (measured max abs diff 148 on yuv420p10le),
-    so accepting the crop here would silently change every pixel. The
-    capture must refuse, hand back the untouched reference frame, and leave
-    `_crop_slice` None for video.py to slice in Python.
+    The previous decoder could not promise this: it converted 10-bit sources
+    through `frame.to_ndarray()` when it had no filter graph and through a
+    `format=bgr24` filter node when it did (measured max abs diff 148 on
+    yuv420p10le), so it refused any crop that would have been the sole reason
+    a graph existed. The ffmpeg decoder always runs one chain, and its
+    `crop` node is exact on every format this test covers, so the crop is
+    accepted and checked against the slice instead of being refused.
     """
     src = tmp_path / "clip.mp4"
     _make_clip(src, 320, 240, frames=5, pix_fmt=pix_fmt, codec=codec)
 
-    with PyAVCapture(str(src)) as cap:
+    with FFmpegCapture(str(src)) as cap:
         reference = _read_all(cap, 5)
-    with PyAVCapture(str(src), crop_rect=CROP) as cap:
-        assert cap._crop_slice is None
-        assert not cap._crop_graph_active
-        assert cap._filter_graph is None
+    with FFmpegCapture(str(src), crop_rect=CROP) as cap:
+        assert cap._crop_slice is not None, "the crop was refused; it is exact here"
+        assert cap._crop_graph_active
         got = _read_all(cap, 5)
 
+    x, y, w, h = CROP
+    assert len(got) == len(reference)
     for i, (ref, g) in enumerate(zip(reference, got)):
-        assert np.array_equal(g, ref), (
-            f"frame {i}: asking for a crop perturbed the frame "
-            f"(max abs diff {int(np.abs(g.astype(int) - ref.astype(int)).max())})"
+        expected = ref[y:y + h, x:x + w]
+        assert g.shape == expected.shape
+        assert np.array_equal(g, expected), (
+            f"frame {i}: crop differs from the slice "
+            f"(max abs diff {int(np.abs(g.astype(int) - expected.astype(int)).max())})"
         )
 
 
 def test_crop_in_graph_matches_numpy_slice(downscaled_clip):
     x, y, w, h = _GRAPH_CROP
-    with PyAVCapture(str(downscaled_clip),
+    with FFmpegCapture(str(downscaled_clip),
                      decode_target_height=_GRAPH_TARGET_HEIGHT) as cap:
         full = _read_all(cap, 10)
-    with PyAVCapture(str(downscaled_clip),
+    with FFmpegCapture(str(downscaled_clip),
                      decode_target_height=_GRAPH_TARGET_HEIGHT,
                      crop_rect=_GRAPH_CROP) as cap:
         # Prove the mechanism, not a coincidence: this must actually run
@@ -115,10 +121,10 @@ def test_configure_crop_called_after_enter_matches_slice(downscaled_clip):
     to learn.
     """
     x, y, w, h = _GRAPH_CROP
-    with PyAVCapture(str(downscaled_clip),
+    with FFmpegCapture(str(downscaled_clip),
                      decode_target_height=_GRAPH_TARGET_HEIGHT) as cap:
         full = _read_all(cap, 10)
-    with PyAVCapture(str(downscaled_clip),
+    with FFmpegCapture(str(downscaled_clip),
                      decode_target_height=_GRAPH_TARGET_HEIGHT) as cap:
         # No crop_rect at construction this time - the graph exists
         # already (downscale needs one), but with no crop yet.
@@ -147,9 +153,9 @@ def test_reconfiguring_crop_clears_stale_state(downscaled_clip, monkeypatch):
     graph already cropped when it did not -- OCRing the wrong region of
     the frame.
     """
-    import videocr.pyav_adapter as pyav_adapter_mod
+    import videocr.ffmpeg_capture as capture_mod
 
-    with PyAVCapture(str(downscaled_clip),
+    with FFmpegCapture(str(downscaled_clip),
                      decode_target_height=_GRAPH_TARGET_HEIGHT,
                      crop_rect=_GRAPH_CROP) as cap:
         assert cap._crop_graph_active
@@ -178,7 +184,7 @@ def test_reconfiguring_crop_clears_stale_state(downscaled_clip, monkeypatch):
         cap.configure_crop(_GRAPH_CROP)
         assert cap._crop_graph_active
 
-        monkeypatch.setattr(pyav_adapter_mod, "_crop_axis_plan", lambda *a, **k: None)
+        monkeypatch.setattr(capture_mod, "_crop_axis_plan", lambda *a, **k: None)
         cap.configure_crop(_GRAPH_CROP)
         assert cap._crop_request == _GRAPH_CROP  # still recorded, just refused
         assert cap._crop_slice is None
@@ -188,11 +194,11 @@ def test_reconfiguring_crop_clears_stale_state(downscaled_clip, monkeypatch):
 
 
 def test_crop_pts_unchanged(downscaled_clip):
-    with PyAVCapture(str(downscaled_clip),
+    with FFmpegCapture(str(downscaled_clip),
                      decode_target_height=_GRAPH_TARGET_HEIGHT) as cap:
         _read_all(cap, 5)
         full_pts = cap.get_last_pts()
-    with PyAVCapture(str(downscaled_clip),
+    with FFmpegCapture(str(downscaled_clip),
                      decode_target_height=_GRAPH_TARGET_HEIGHT,
                      crop_rect=_GRAPH_CROP) as cap:
         assert cap._crop_graph_active
@@ -205,9 +211,9 @@ def test_crop_matches_slice_with_decode_downscale(tmp_path):
     src = tmp_path / "uhd.mp4"
     _make_clip(src, 3840, 2160, frames=5)
     crop = (400, 900, 1024, 96)  # in 1080p output space
-    with PyAVCapture(str(src), decode_target_height=1080) as cap:
+    with FFmpegCapture(str(src), decode_target_height=1080) as cap:
         full = _read_all(cap, 5)
-    with PyAVCapture(str(src), decode_target_height=1080, crop_rect=crop) as cap:
+    with FFmpegCapture(str(src), decode_target_height=1080, crop_rect=crop) as cap:
         assert cap._crop_graph_active
         cropped = _read_all(cap, 5)
     x, y, w, h = crop
@@ -263,9 +269,9 @@ def test_crop_invariant_holds_across_decode_ratios(
     src = tmp_path / "clip.mp4"
     _make_clip(src, width, height, frames=5, pix_fmt=pix_fmt, codec=codec)
 
-    with PyAVCapture(str(src), decode_target_height=decode_target_height) as cap:
+    with FFmpegCapture(str(src), decode_target_height=decode_target_height) as cap:
         full = _read_all(cap, 5)
-    with PyAVCapture(str(src), decode_target_height=decode_target_height,
+    with FFmpegCapture(str(src), decode_target_height=decode_target_height,
                       crop_rect=crop) as cap:
         graph_active = cap._crop_graph_active
         cropped = _read_all(cap, 5)
@@ -274,7 +280,7 @@ def test_crop_invariant_holds_across_decode_ratios(
         # Refused: video.py's `not getattr(v, '_crop_slice', None)` guard
         # (videocr/video.py) depends on `_crop_slice` being exactly None
         # here -- assert that directly. Then prove end-to-end that the
-        # frame PyAVCapture handed back, sliced in Python the way video.py
+        # frame FFmpegCapture handed back, sliced in Python the way video.py
         # would, reproduces the reference exactly (reusing the clip and
         # frames already generated above; no extra decode needed).
         assert cap._crop_slice is None
@@ -298,14 +304,14 @@ def test_crop_invariant_holds_across_decode_ratios(
 
 
 # --------------------------------------------------------------------------
-# Pipeline level: Video.run_ocr() itself, not just PyAVCapture in isolation
+# Pipeline level: Video.run_ocr() itself, not just FFmpegCapture in isolation
 # --------------------------------------------------------------------------
 
 def test_run_ocr_turns_on_the_graph_crop_for_a_downscaled_source(tmp_path, monkeypatch):
     """The test that would have caught finding 1 (crop_rect only ever fed
     by tests, so Video.run_ocr() never actually turned the graph crop on
     in production - see task-3-report.md). Every crop test above (and in
-    tests/test_capture_hdr.py) drives PyAVCapture directly with
+    tests/test_capture_hdr.py) drives FFmpegCapture directly with
     crop_rect= at the constructor, so none of them would notice run_ocr()
     itself never calling configure_crop(). Confirmed by reverting the
     configure_crop() call at videocr/video.py:423-428 in a scratch copy:

@@ -3,7 +3,7 @@ from contextlib import ExitStack
 from . import engine_registry, utils
 from .video import Video
 from .progress import ProgressTracker
-from .pyav_adapter import assert_reference_backend
+from .ffmpeg_capture import assert_reference_backend
 
 
 def _scaled_progress_callback(progress_callback, range_index: int, total_ranges: int):
@@ -84,7 +84,7 @@ def _get_subtitles_for_range(
         # label times count from the player's zero, as dialogue times do.
         stream_start_time = getattr(v, '_stream_start_time', None)
         if stream_start_time is None:
-            from .pyav_adapter import Capture
+            from .ffmpeg_capture import Capture
             with Capture(video_path) as cap:
                 stream_start_time = cap.get_stream_start_time() if hasattr(cap, 'get_stream_start_time') else 0.0
 
@@ -115,10 +115,10 @@ def get_subtitles(
 
     # Every production OCR run enters here (core/ocr_worker.py calls this and
     # save_subtitles_to_file, which wraps it). Refuse before decoding a single
-    # frame if the bit-exact reference backend is not the one that would run:
-    # an `av` that fails to import silently demotes the whole run to the
-    # PTS-estimating fallback, which is how a previous release shipped output
-    # that could not be reproduced. OCR_ALLOW_FFMPEG_FALLBACK=1 opts in.
+    # frame if the decoder this app is built around is not the one that would
+    # run: a missing ffmpeg/ffprobe silently demotes the whole run to the
+    # PTS-estimating OpenCV fallback, which is how a previous release shipped
+    # output that could not be reproduced. OCR_ALLOW_FFMPEG_FALLBACK=1 opts in.
     assert_reference_backend()
 
     if time_ranges is not None:

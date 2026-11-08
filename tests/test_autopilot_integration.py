@@ -53,7 +53,7 @@ from core.project.model import (
     ReviewState,
     Source,
 )
-from videocr import engine_registry, pyav_adapter
+from videocr import engine_registry, ffmpeg_capture
 
 pytestmark = pytest.mark.timeout(60)
 
@@ -89,7 +89,7 @@ class Fakes:
 
     def install(self, monkeypatch) -> None:
         monkeypatch.setattr(ocr_view, "video_timing", self.video_timing)
-        monkeypatch.setattr(pyav_adapter, "Capture", FakeCapture)
+        monkeypatch.setattr(ffmpeg_capture, "Capture", FakeCapture)
         monkeypatch.setattr(crop_module, "grab_frames", self.grab_frames)
         monkeypatch.setattr(crop_module, "detect_crop", self.detect_crop)
         monkeypatch.setattr(brightness_module, "detect_brightness", self.detect_brightness)

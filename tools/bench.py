@@ -43,6 +43,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from core import ffmpeg as ffmpeg_tool  # noqa: E402
 from tools.fidelity_check import Case, load_cases, media_root, run_case, digest  # noqa: E402
 
 VENV_PYTHON = REPO / ".venv" / "bin" / "python"
@@ -256,7 +257,7 @@ def _install_ocr_instrumentation():
     """
     import queue as queue_mod
     from videocr import utils as vc_utils
-    from videocr import pyav_adapter as vc_pyav
+    from videocr import ffmpeg_capture as vc_capture
     from videocr import label_scanner as vc_label
 
     stats = {
@@ -271,8 +272,8 @@ def _install_ocr_instrumentation():
 
     orig_create_ocr = vc_utils.create_ocr_engine
     orig_create_det = vc_utils.create_detection_engine
-    orig_capture_read = vc_pyav.Capture.read
-    orig_capture_grab = vc_pyav.Capture.grab
+    orig_capture_read = vc_capture.Capture.read
+    orig_capture_grab = vc_capture.Capture.grab
     orig_scan = vc_label.LabelScanner.scan
     orig_queue_put = queue_mod.Queue.put
 
@@ -337,16 +338,16 @@ def _install_ocr_instrumentation():
 
     vc_utils.create_ocr_engine = timed_create_ocr
     vc_utils.create_detection_engine = timed_create_det
-    vc_pyav.Capture.read = timed_read
-    vc_pyav.Capture.grab = counting_grab
+    vc_capture.Capture.read = timed_read
+    vc_capture.Capture.grab = counting_grab
     vc_label.LabelScanner.scan = timed_scan
     queue_mod.Queue.put = counting_put
 
     def restore():
         vc_utils.create_ocr_engine = orig_create_ocr
         vc_utils.create_detection_engine = orig_create_det
-        vc_pyav.Capture.read = orig_capture_read
-        vc_pyav.Capture.grab = orig_capture_grab
+        vc_capture.Capture.read = orig_capture_read
+        vc_capture.Capture.grab = orig_capture_grab
         vc_label.LabelScanner.scan = orig_scan
         queue_mod.Queue.put = orig_queue_put
 
@@ -450,8 +451,8 @@ def run_ocr_suite(repeat: int) -> dict:
 
 def _probe_duration_seconds(video: Path) -> float:
     proc = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(video)],
+        [*ffmpeg_tool.ffprobe_argv("-v", "error", "-show_entries", "format=duration",
+                                  "-of", "csv=p=0", str(video))],
         capture_output=True, text=True, check=True,
     )
     return float(proc.stdout.strip())

@@ -1,29 +1,26 @@
-# Runtime dependencies
-PyQt6>=6.5.0
-opencv-python>=4.8.0
-numpy>=1.24.0
+# Runtime dependencies. Windows only: the app is a Windows application.
+# There is no separately installed OCR engine -- RapidOCR runs the PP-OCR
+# models on ONNX Runtime, and onnxruntime-directml puts them on any DirectX 12
+# graphics adapter (NVIDIA, AMD, Intel) with an automatic CPU fallback, so no
+# CUDA toolkit, driver build or nvidia-smi is involved anywhere.
+PyQt6>=6.10.0
+opencv-python-headless>=4.10.0
+numpy>=2.0.0
 scipy>=1.14.0
 
 # videocr dependencies (now embedded)
-# Note: paddlepaddle-gpu must be installed separately via Paddle's index:
-#   .venv/bin/pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
-paddleocr==3.3.2
-paddlex==3.3.10
+onnxruntime-directml>=1.24.0
+rapidocr==3.10.0
+# rapidocr's Arabic route imports bidi while the engine is built, so this is
+# required rather than rapidocr's optional [rtl] extra.
+python-bidi>=0.6.0
 thefuzz==0.22.1
-python-Levenshtein==0.27.3
-PyYAML==6.0.2
-packaging==25.0
-# Pinned exactly: an av bump changes the bundled swscale (output can move
-# silently) and the wheel's filter inventory (the PyAV tone-map chain is
-# chosen from it). Re-pin deliberately, then re-run tools/fidelity_check.py.
-av==18.1.0
-setuptools>=61.0
 rapidfuzz>=3.0.0
 jieba3>=1.0.0
-
-# Build dependencies (optional - only needed to create executables)
-# pyinstaller>=6.0.0
+PyYAML>=6.0.0
+packaging>=24.0
+setuptools>=61.0
 
 # External tools required (not Python packages):
-# - ffmpeg (must be in PATH)
+# - ffmpeg (must be in PATH; the release bundle ships it in bin/)
 # - ffprobe (must be in PATH, usually comes with ffmpeg)

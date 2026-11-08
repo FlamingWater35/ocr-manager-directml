@@ -553,7 +553,7 @@ class FolderSettingsSheet(QWidget):
 
     def _sync_language(self, code: str) -> None:
         combo = self._editors["ocr_lang"]
-        codes = list(LANGUAGES) if code in LANGUAGES else [*LANGUAGES, code]    # a code Paddle lacks stays visible
+        codes = list(LANGUAGES) if code in LANGUAGES else [*LANGUAGES, code]    # an unknown code stays visible
         if [combo.itemData(i) for i in range(combo.count())] == codes and combo.currentText() == language_label(code):
             return                                           # unchanged: keep the cursor where the user left it
         combo.blockSignals(True)

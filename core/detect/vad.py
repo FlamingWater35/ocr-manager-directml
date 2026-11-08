@@ -42,6 +42,7 @@ from collections.abc import Callable
 
 import numpy as np
 
+from core import ffmpeg as ffmpeg_tool
 from core.proc import TEXT_ENCODING, hidden_child
 
 SAMPLE_RATE = 16000
@@ -93,7 +94,7 @@ def has_audio_stream(video_path: str) -> bool:
     audio stream cannot be decoded.
     """
     cmd = [
-        "ffprobe", "-v", "error", "-select_streams", "a",
+        *ffmpeg_tool.ffprobe_argv("-v", "error", "-select_streams", "a"),
         "-show_entries", "stream=index", "-of", "csv=p=0", video_path,
     ]
     result = subprocess.run(cmd, capture_output=True, check=True, text=True, **TEXT_ENCODING,
@@ -112,7 +113,7 @@ def extract_audio_window(video_path: str, start_sec: float, duration_sec: float,
     killed in the last two cases.
     """
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        *ffmpeg_tool.ffmpeg_argv("-hide_banner", "-loglevel", "error"),
         "-ss", f"{max(0.0, start_sec):.3f}", "-t", f"{max(0.0, duration_sec):.3f}",
         "-i", video_path, "-vn", "-ac", "1", "-ar", str(sample_rate),
         "-f", "s16le", "pipe:1",

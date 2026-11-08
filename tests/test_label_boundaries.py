@@ -33,18 +33,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from decode_reference import decode_reference, encode, have_encoder
 from videocr.label_scanner import LabelResult, _ScanBracket
-from videocr.pyav_adapter import PyAVCapture
+from videocr.ffmpeg_capture import FFmpegCapture
 from test_label_frame_identity import (
     CLIPS,
     ON_SCREEN_TOLERANCE,
     SIZES,
     VIDEO_START,
     _Counting,
-    _decode_reference,
-    _encode,
     _ExhaustingSeeks,
-    _have_encoder,
     _matrix,
     _on_screen,
     _phase34_scanner,
@@ -75,7 +73,7 @@ class _Clip:
 
     def __init__(self, path):
         self.path = path
-        self.reference = _decode_reference(path)
+        self.reference = decode_reference(path)
         self.pts = [p for p, _ in self.reference]
         probe = self.scanner()
         self.fps = probe.fps
@@ -153,7 +151,7 @@ def clip_for(tmp_path_factory):
 
     def get(clip_id):
         if clip_id == GAP_CLIP:
-            if not _have_encoder("libx264"):
+            if not have_encoder("libx264"):
                 pytest.skip(f"libx264 encoder not available for {clip_id}")
             if not _ffmpeg_has_option("fps_mode"):
                 pytest.skip(f"this ffmpeg has no -fps_mode, needed to keep {clip_id}'s timestamp gap")
@@ -168,11 +166,12 @@ def clip_for(tmp_path_factory):
                 made[clip_id] = _Clip(path)
             return made[clip_id]
         ext, pix_fmt, codec, rate, extra = EXTRA_CLIPS.get(clip_id) or CLIPS[clip_id]
-        if not _have_encoder(codec):
+        if not have_encoder(codec):
             pytest.skip(f"{codec} encoder not available for {clip_id}")
         if clip_id not in made:
             path = root / f"{clip_id}.{ext}"
-            _encode(path, pix_fmt, codec, rate, extra, SIZES.get(clip_id, "320x240"), VIDEO_START.get(clip_id))
+            encode(path, size=SIZES.get(clip_id, "320x240"), rate=rate, pix_fmt=pix_fmt,
+                   codec=codec, extra=extra, video_start=VIDEO_START.get(clip_id))
             made[clip_id] = _Clip(path)
         return made[clip_id]
 
@@ -887,7 +886,7 @@ def test_a_sample_whose_seek_runs_out_of_retries_is_not_a_bracket_edge(clip_for,
     def skipped(t):
         return any(abs(t - f) < 1e-9 for f in failing)
 
-    caplog.set_level(logging.WARNING, logger="videocr.pyav_adapter")
+    caplog.set_level(logging.WARNING, logger="videocr.ffmpeg_capture")
     exhausting = _ExhaustingSeeks(monkeypatch, skipped)
     detector = _LabelOn(clip, shown)
     labels = scanner._phase4_find_timing([segment], detector)
@@ -929,7 +928,7 @@ def test_a_start_whose_bracket_cannot_be_read_stays_on_the_scan_frame(clip_for, 
     first = clip.segment(clip.pts[25], clip.pts[45])
     second = clip.segment(clip.pts[52] + 0.01, clip.pts[70])  # read between two frames
     bound = (first["end_pts"] + second["start_pts"]) / 2
-    caplog.set_level(logging.WARNING, logger="videocr.pyav_adapter")
+    caplog.set_level(logging.WARNING, logger="videocr.ffmpeg_capture")
     exhausting = _ExhaustingSeeks(monkeypatch, lambda t: abs(t - bound) < 1e-9)
     shown = range(20, 81)
 
@@ -955,7 +954,7 @@ def test_a_boundary_stays_where_the_scan_left_it_when_its_frame_cannot_be_read(c
     fps = clip.fps
     past_end = clip.pts[-1] + 1.0
     detector = _LabelOn(clip, range(len(clip.pts)))
-    with PyAVCapture(str(clip.path)) as cap:
+    with FFmpegCapture(str(clip.path)) as cap:
         assert scanner._refine_end(cap, detector, clip.box, clip.box,
                                    _bracket_of(past_end, past_end + 5.0)) == past_end
         assert scanner._refine_start(cap, detector, clip.box, clip.box,

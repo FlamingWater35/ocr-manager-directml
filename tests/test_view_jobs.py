@@ -51,7 +51,10 @@ from core.jobs.view_jobs import (
     WarmResult,
 )
 
-PROJECT_DIR = "/proj"
+# A project folder as os.path.join builds it: on Windows "/proj" is not
+# absolute and the separator is a backslash, and the jobs are tested
+# against the path they were handed, not a POSIX spelling of it.
+PROJECT_DIR = os.path.join(os.sep, "proj")
 BOX = (288, 786, 1344, 53)
 
 
@@ -301,7 +304,7 @@ def test_a_frame_job_grabs_whole_frames_at_the_requested_times(monkeypatch):
 
     out = job.run(_ctx(job))
 
-    assert fake.calls == [{"video_path": "/proj/a.mp4", "times": [1.5, 2.0],
+    assert fake.calls == [{"video_path": os.path.join(PROJECT_DIR, "a.mp4"), "times": [1.5, 2.0],
                            "band_frac": 1.0, "target_height": FRAME_HEIGHT}]
     assert isinstance(out, FramesResult)
     assert out.file == "a.mp4"
@@ -505,7 +508,8 @@ def test_a_strip_job_grabs_ocr_exact_strips_at_the_requested_times(monkeypatch):
 
     out = job.run(_ctx(job))
 
-    assert fake.calls == [{"video_path": "/proj/a.mp4", "crop_box": BOX, "times": [1.5, 2.0]}]
+    assert fake.calls == [{"video_path": os.path.join(PROJECT_DIR, "a.mp4"),
+                       "crop_box": BOX, "times": [1.5, 2.0]}]
     assert isinstance(out, StripsResult)
     assert (out.file, out.crop_box) == ("a.mp4", BOX)
     assert out.strips == {1.5: first, 2.0: second}

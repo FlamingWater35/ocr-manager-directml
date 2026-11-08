@@ -179,8 +179,10 @@ class FakeOcr:
 
     def save_subtitles_to_file(self, **kwargs) -> None:
         text = self._ocr("save_subtitles_to_file", kwargs)
-        # Like the real one: file_path is written whatever happened, even after a cancel.
-        with open(kwargs["file_path"], "w+", encoding="utf-8") as f:
+        # Like the real one (videocr.api.save_subtitles_to_file): file_path is
+        # written whatever happened, even after a cancel, with newline="\n" so
+        # the bytes are LF on every OS.
+        with open(kwargs["file_path"], "w+", encoding="utf-8", newline="\n") as f:
             f.write(text)
 
     def get_subtitles(self, **kwargs) -> str:
@@ -205,7 +207,8 @@ class FakeQa:
         error = self.raise_for.get(os.path.basename(path))
         if error is not None:
             raise error
-        with open(path, "a", encoding="utf-8") as f:
+        # newline="\n" like core.ass_qafix.process_file: LF on every OS.
+        with open(path, "a", encoding="utf-8", newline="\n") as f:
             f.write(QA_LINE)
         return self.stats
 
@@ -752,9 +755,11 @@ def test_summary_sorts_every_file_into_one_outcome_in_snapshot_order(tmp_path, o
              run_file(tmp_path, "b.mp4"),
              run_file(tmp_path, "c.mp4", [("0:00", "1:00"), ("2:00", "3:00")]),
              run_file(tmp_path, "a.mp4")]
-    started = time.monotonic()
+    # perf_counter, the clock RunSummary.seconds uses: time.monotonic() is
+    # GetTickCount64 on Windows (15.6 ms), so a 4 ms run would read as 0.0.
+    started = time.perf_counter()
     summary, _ = run_now(tmp_path, files, parallel=3)
-    elapsed = time.monotonic() - started
+    elapsed = time.perf_counter() - started
 
     assert isinstance(summary, RunSummary)
     assert summary.succeeded == ["d.mp4", "a.mp4"]

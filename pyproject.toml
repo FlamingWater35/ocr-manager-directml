@@ -5,25 +5,28 @@ description = "Video OCR crop and brightness configuration tool"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11, <3.13"
+classifiers = [
+    "Operating System :: Microsoft :: Windows",
+    "Environment :: Win32 (MS Windows)",
+]
 dependencies = [
-    "PyQt6>=6.5.0",
-    "opencv-python>=4.8.0",
-    "numpy>=1.24.0",
+    "PyQt6>=6.10.0",
+    "opencv-python-headless>=4.10.0",
+    "numpy>=2.0.0",
     "scipy>=1.14.0",
     # videocr dependencies (now embedded)
-    # Note: paddlepaddle-gpu is installed separately via Paddle's index
-    "paddleocr==3.3.2",
-    "paddlex==3.3.10",
+    # OCR runs on ONNX Runtime; the DirectML build puts it on any DirectX 12
+    # adapter and falls back to the CPU by itself. No CUDA anywhere.
+    "onnxruntime-directml>=1.24.0",
+    "rapidocr==3.10.0",
+    # rapidocr's Arabic route imports bidi while the engine is built.
+    "python-bidi>=0.6.0",
     "thefuzz==0.22.1",
-    "python-Levenshtein==0.27.3",
-    "PyYAML==6.0.2",
-    "packaging==25.0",
-    # Pinned exactly: an av bump changes the bundled swscale and the
-    # wheel's filter inventory, both of which can move OCR output.
-    "av==18.1.0",
-    "setuptools>=61.0",
     "rapidfuzz>=3.0.0",
     "jieba3>=1.0.0",
+    "PyYAML>=6.0.0",
+    "packaging>=24.0",
+    "setuptools>=61.0",
 ]
 
 [project.optional-dependencies]

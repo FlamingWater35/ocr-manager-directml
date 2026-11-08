@@ -1083,65 +1083,57 @@ def test_files_appearing_and_disappearing_update_the_queue(qapp, fake_runner, tm
         window.close()
 
 
-def test_dependency_banner_when_pyav_is_missing(make_window, monkeypatch):
-    import app.main_window as main_window_module
-    import videocr.pyav_adapter as pyav
+def _fake_tools(monkeypatch, present=("ffmpeg", "ffprobe")):
+    """Make core.ffmpeg report exactly these tools as found."""
+    import core.ffmpeg as ffmpeg_module
 
-    monkeypatch.setattr(main_window_module.shutil, "which", lambda tool: f"/usr/bin/{tool}")
-    monkeypatch.setattr(pyav, "PYAV_AVAILABLE", False)
-    monkeypatch.setattr(pyav, "PYAV_IMPORT_ERROR", "No module named 'av'")
-    window = make_window()
-    banner = window.dependency_banner
-    assert not banner.isHidden()
-    assert banner.title() == "Video backend degraded"
-    assert "PyAV is not available" in banner.text()
-    assert ".venv/bin/pip install -U --only-binary=:all: av" in banner.text()
-    assert "Import error: No module named 'av'" in banner.text()
+    monkeypatch.setattr(ffmpeg_module, "find_tool",
+                        lambda name: (f"/opt/ocr/bin/{name}", "bundle") if name in present else (None, None))
 
 
-def test_dependency_banner_when_ffmpeg_is_missing(make_window, monkeypatch):
-    import app.main_window as main_window_module
-    import videocr.pyav_adapter as pyav
-
-    monkeypatch.setattr(main_window_module.shutil, "which", lambda tool: None)
-    monkeypatch.setattr(pyav, "PYAV_AVAILABLE", True)
+def test_dependency_banner_names_a_missing_ffmpeg(make_window, monkeypatch):
+    _fake_tools(monkeypatch, present=("ffprobe",))
     window = make_window()
     assert window.dependency_banner.title() == "Missing Dependencies"
-    assert "Required tools not found in PATH:\nffmpeg" in window.dependency_banner.text()
+    text = window.dependency_banner.text()
+    assert "ffmpeg" in text
+    assert "bin folder" in text                     # says where they should be
+    assert "OCR_MANAGER_FFMPEG_DIR" in text         # and how to point elsewhere
 
 
 def test_dependency_banner_names_a_missing_ffprobe(make_window, monkeypatch):
-    import app.main_window as main_window_module
-    import videocr.pyav_adapter as pyav
-
-    monkeypatch.setattr(main_window_module.shutil, "which", lambda tool: None if tool == "ffprobe" else tool)
-    monkeypatch.setattr(pyav, "PYAV_AVAILABLE", True)
+    _fake_tools(monkeypatch, present=("ffmpeg",))
     window = make_window()
     assert window.dependency_banner.title() == "Missing Dependencies"
-    assert "Required tools not found in PATH:\nffprobe" in window.dependency_banner.text()
+    assert "ffprobe" in window.dependency_banner.text()
 
 
-def test_dependency_banner_in_a_bundle_without_an_ocr_engine(make_window, monkeypatch, tmp_path):
-    import app.main_window as main_window_module
-    import videocr.pyav_adapter as pyav
-
-    (tmp_path / "bundle").mkdir()
-    (tmp_path / "bundle" / "bundle.json").write_text('{"version": "1.0.0", "os": "linux", "arch": "x86_64"}')
-    monkeypatch.setenv("OCR_MANAGER_BUNDLE", str(tmp_path / "bundle"))
-    monkeypatch.setenv("OCR_MANAGER_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setattr(main_window_module.shutil, "which", lambda tool: f"/usr/bin/{tool}")
-    monkeypatch.setattr(pyav, "PYAV_AVAILABLE", True)
+def test_the_banner_does_not_send_the_user_to_path(make_window, monkeypatch):
+    """The old wording told users to install ffmpeg and put it on PATH. It
+    comes with the app now, so the banner must not send them to PATH."""
+    _fake_tools(monkeypatch, present=())
     window = make_window()
-    assert window.dependency_banner.title() == "OCR engine missing"
-    assert "--setup-engine" in window.dependency_banner.text()
+    assert "PATH" not in window.dependency_banner.text()
+
+
+def test_dependency_banner_when_the_ocr_engine_cannot_load(make_window, monkeypatch):
+    """A broken engine is the one first-run state left: there is no installer,
+    the engine ships with the app."""
+    import app.main_window as main_window_module
+
+    _fake_tools(monkeypatch)
+    monkeypatch.setattr(main_window_module, "engine_problem",
+                        lambda: ("OCR engine unavailable", "The OCR engine could not be loaded."))
+    window = make_window()
+    assert window.dependency_banner.title() == "OCR engine unavailable"
+    assert "could not be loaded" in window.dependency_banner.text()
 
 
 def test_no_dependency_banner_when_everything_is_there(make_window, monkeypatch):
     import app.main_window as main_window_module
-    import videocr.pyav_adapter as pyav
 
-    monkeypatch.setattr(main_window_module.shutil, "which", lambda tool: f"/usr/bin/{tool}")
-    monkeypatch.setattr(pyav, "PYAV_AVAILABLE", True)
+    _fake_tools(monkeypatch)
+    monkeypatch.setattr(main_window_module, "engine_problem", lambda: None)
     assert make_window().dependency_banner.isHidden()
 
 
@@ -1366,7 +1358,7 @@ def test_views_import_no_core_modules():
             else:
                 continue
             for module in modules:
-                if module == "videocr" or module.startswith("videocr.pyav_adapter"):
+                if module == "videocr":
                     continue                                # the brief's dependency check
                 if module.split(".")[0] in ("core", "videocr"):
                     offenders.append(f"{path.relative_to(REPO_ROOT)}: {module}")

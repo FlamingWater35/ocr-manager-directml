@@ -1,11 +1,13 @@
 import os
 import shutil
 import subprocess
+import sys
 import time
 
 import numpy as np
 import pytest
 
+from core import ffmpeg as ffmpeg_tool
 from core.detect import vad
 
 SR = 16000
@@ -237,15 +239,30 @@ def test_probing_a_file_that_cannot_be_opened_raises(tmp_path):
 
 @pytest.fixture
 def hanging_audio_ffmpeg(tmp_path, monkeypatch):
-    """Puts an `ffmpeg` first on PATH that hangs (sleeps 8 s) when asked to
-    extract audio (-vn) and runs the real ffmpeg otherwise."""
-    real = shutil.which("ffmpeg")
-    fake = tmp_path / "bin" / "ffmpeg"
-    fake.parent.mkdir()
-    fake.write_text(f'#!/bin/sh\ncase " $* " in *" -vn "*) exec sleep 8;; esac\nexec "{real}" "$@"\n')
-    fake.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
-    return fake
+    """Makes the ffmpeg the app resolves hang (sleep 8 s) when asked to extract
+    audio (-vn), and run the real ffmpeg otherwise.
+
+    The fake is a Python script run by this interpreter, not a shell script or
+    a .bat: the point of the tests below is that a stuck ffmpeg can be killed
+    and the call returns promptly, and on Windows killing a .bat leaves its
+    child (a sleeping ping) holding the pipes open, so the call would block
+    anyway.  The resolver is patched rather than PATH, because ffmpeg ships
+    with the app and vad.py asks core.ffmpeg where it is.
+    """
+    real = ffmpeg_tool.ffmpeg_path()
+    script = tmp_path / "fake_ffmpeg.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        "args = sys.argv[1:]\n"
+        "if ' -vn ' in f' {\" \".join(args)} ' or '-vn' in args:\n"
+        "    time.sleep(8)\n"
+        "    sys.exit(0)\n"
+        f"sys.exit(subprocess.call([{real!r}, *args]))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ffmpeg_tool, "ffmpeg_argv",
+                        lambda *args: [sys.executable, str(script), *args])
+    return script
 
 
 def test_extract_audio_window_gives_up_at_its_timeout(synthetic_audio_video, hanging_audio_ffmpeg, monkeypatch):

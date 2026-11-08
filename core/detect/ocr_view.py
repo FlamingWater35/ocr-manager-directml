@@ -1,7 +1,7 @@
 """Frames exactly as the OCR pass sees them.
 
 videocr/video.py's `Video.run_ocr` / `_frame_producer` decodes through
-`videocr.pyav_adapter.Capture`, crops, downscales tall crops, masks every
+`videocr.ffmpeg_capture.Capture`, crops, downscales tall crops, masks every
 frame to the pixels whose channels are all >= the brightness threshold, and
 only OCRs frames whose masked centre square trips a Laplacian-variance gate.
 Anything that tunes or previews a brightness threshold has to look at those
@@ -28,11 +28,10 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 
-import av
 import cv2
 import numpy as np
 
-from videocr.pyav_adapter import DECODE_TARGET_HEIGHT, Capture
+from videocr.ffmpeg_capture import DECODE_TARGET_HEIGHT, Capture
 from videocr.video import MIN_CROP_HEIGHT, MIN_LAPLACIAN_VARIANCE, TARGET_VIDEO_HEIGHT
 
 logger = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ logger = logging.getLogger(__name__)
 # instead of raising -- the same families core/detect/crop.py treats as a
 # failed grab. A RuntimeError from Capture's filter graph is deliberately NOT
 # here: that refusal means the OCR pass itself cannot decode the file.
-FETCH_ERRORS = (av.error.FFmpegError, OSError, ValueError, EOFError)
+FETCH_ERRORS = (OSError, ValueError, EOFError)
 
 SAMPLE_EDGE_EXCLUDE_FRAC = 0.10   # without keep ranges, skip the first/last 10%
 SAMPLE_WORKERS = 4                # capture containers opened in parallel
@@ -301,7 +300,7 @@ def grab_ocr_strips_at(video_path: str, crop_box, times: list[float]) -> list[tu
 
     def work(chunk: list[int]) -> None:
         # Each worker seeks forward through its own ascending share of the
-        # times; one container per thread (PyAV releases the GIL to decode).
+        # times; one container per thread (ffmpeg decodes in its own process).
         # Only OPENING the container is guarded here: seek/read failures are
         # handled per frame in read_chunk, and anything else raised there is a
         # bug to surface, not a capture failure to log away. A failure to

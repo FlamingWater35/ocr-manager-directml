@@ -30,11 +30,11 @@ class PredictedFrames:
     pts_end: float    # Presentation timestamp of last frame (seconds)
 
     def __init__(self, index: int, pred_data: list[list], conf_threshold: float, lang: str = 'ch', pts: float = None):
-        # Fix for PaddleOCR versions greater than 2.7.0.2
+        # Legacy result shape, normalised at the engine boundary
         if not pred_data or pred_data[0] is None:
             pred_data = [[]]
 
-        # Fix for PaddleOCR versions greater or equal than 3.0.3
+        # (videocr/ocr_engine.py returns this shape for every engine)
         if utils.needs_conversion():
             pred_data = utils.convert_pred_data_to_old_format(pred_data)
 
@@ -69,7 +69,7 @@ class PredictedFrames:
                 word_count += 1
                 words.append(PredictedText(bounding_box, conf, text))
 
-        # Detect if PaddleOCR returned rotated coordinates (common for landscape images)
+        # Detect if the engine returned rotated coordinates (common for landscape images)
         # When rotated, bbox "height" (Y range) is larger than "width" (X range)
         coords_rotated = self._detect_rotated_coords(words)
 
@@ -102,9 +102,9 @@ class PredictedFrames:
         self.text = '\n'.join(word_separator.join(word.text for word in line) for line in self.lines)
 
     def _detect_rotated_coords(self, words: List[PredictedText]) -> bool:
-        """Detect if PaddleOCR returned rotated coordinates.
+        """Detect if the engine returned rotated coordinates.
 
-        PaddleOCR sometimes rotates landscape images internally, causing
+        The engine sometimes rotates landscape images internally, causing
         bounding box coordinates to be in rotated space where:
         - Y coordinates represent horizontal position
         - X coordinates represent vertical position

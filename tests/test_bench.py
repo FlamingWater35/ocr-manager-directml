@@ -38,11 +38,11 @@ def test_ocr_instrumentation_counts_frames_decoded_by_grab_as_well_as_read(synth
     """Label phase 1 decodes most frames with grab() and converts only the
     sampled ones with read(); "frames decoded" must count both."""
     from tools.bench import _install_ocr_instrumentation
-    from videocr import pyav_adapter
+    from videocr import ffmpeg_capture
 
     stats, restore = _install_ocr_instrumentation()
     try:
-        with pyav_adapter.Capture(str(synthetic_video)) as cap:
+        with ffmpeg_capture.Capture(str(synthetic_video)) as cap:
             assert cap.read()[0]
             assert cap.grab()
             assert cap.grab()

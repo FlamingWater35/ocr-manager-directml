@@ -12,19 +12,19 @@ References, from most to least independent of the code under test:
 * a raw PyAV decode of every frame from the start of the file, keeping
   every Nth (no capture class involved at all);
 * the pre-change phase 1 loop -- seek once, `read()` every frame, keep every
-  Nth by counting -- re-implemented here on `PyAVCapture`, which is what the
+  Nth by counting -- re-implemented here on `FFmpegCapture`, which is what the
   label goldens were captured with, and the only way to cover the seek.
 """
 import subprocess
 
-import av
 import cv2
 import numpy as np
 import pytest
 
-from videocr import pyav_adapter
+import decode_reference
+from videocr import ffmpeg_capture
 from videocr.label_scanner import LabelScanner
-from videocr.pyav_adapter import FFmpegNVDECCapture, PyAVCapture
+from videocr.ffmpeg_capture import FFmpegCapture
 
 FRAMES = 100
 
@@ -39,7 +39,7 @@ CLIPS = {
     "8bit-h264-23.976fps": ("yuv420p", "libx264", "24000/1001", [], False),
     # Container start_time 1.5 s: every PTS is offset.
     "8bit-h264-offset": ("yuv420p", "libx264", "25", ["-output_ts_offset", "1.5"], False),
-    # PQ-tagged: PyAVCapture pushes frames through a tone-map filter graph.
+    # PQ-tagged: FFmpegCapture pushes frames through a tone-map filter graph.
     "10bit-h264-pq": (
         "yuv420p10le", "libx264", "25",
         ["-vf", "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc",
@@ -77,10 +77,10 @@ def clips(tmp_path_factory):
     for cid, (pix_fmt, codec, rate, extra, tone_mapped) in CLIPS.items():
         path = root / f"{cid}.mp4"
         _encode(path, pix_fmt, codec, rate, extra)
-        with PyAVCapture(str(path)) as cap:
+        with FFmpegCapture(str(path)) as cap:
             # Guard the fixture itself: an untagged "HDR" clip would quietly
             # turn the tone-map case into a second SDR case.
-            assert cap._needs_tonemap == tone_mapped, cid
+            assert bool(ffmpeg_capture.tone_map_filters(cap._info.transfer)) == tone_mapped, cid
             # ...and every frame must differ from the next inside the region
             # phase 1 hands to detection (the top 80%), so a sample taken one
             # frame early or late can never compare equal by accident.
@@ -96,15 +96,10 @@ def clips(tmp_path_factory):
 
 
 def _scanner(path):
-    container = av.open(str(path))
-    try:
-        stream = container.streams.video[0]
-        fps = float(stream.average_rate)
-        width, height, num_frames = stream.width, stream.height, stream.frames
-    finally:
-        container.close()
-    assert num_frames == FRAMES
-    return LabelScanner(str(path), fps, width, height, num_frames, None, None, None, None)
+    info = ffmpeg_capture._probe(str(path))
+    assert info.frame_count == FRAMES
+    return LabelScanner(str(path), info.fps, info.width, info.height, info.frame_count,
+                        None, None, None, None)
 
 
 def _index_range(scanner, time_start, time_end):
@@ -135,7 +130,7 @@ def _run_phase1(path, time_start, time_end):
     return scanner, det, text_frames
 
 
-def _every_frame_loop(path, start_idx, end_idx, interval, capture=PyAVCapture):
+def _every_frame_loop(path, start_idx, end_idx, interval, capture=FFmpegCapture):
     """The pre-change phase 1 decode loop: read (decode + convert) every
     frame after the seek, keep every Nth by counting."""
     kept = []
@@ -151,20 +146,13 @@ def _every_frame_loop(path, start_idx, end_idx, interval, capture=PyAVCapture):
 
 
 def _raw_decode_every_nth(path, end_idx, interval):
-    """Every frame decoded and converted by PyAV itself, every Nth kept."""
-    kept = []
-    container = av.open(str(path))
-    try:
-        stream = container.streams.video[0]
-        for ordinal, frame in enumerate(container.decode(video=0)):
-            if ordinal >= end_idx:
-                break
-            if ordinal % interval == 0:
-                kept.append((ordinal, float(frame.pts * stream.time_base),
-                             frame.to_ndarray(format="bgr24")))
-    finally:
-        container.close()
-    return kept
+    """Every frame decoded and converted by plain ffmpeg, every Nth kept: a
+    reference that shares no code with the capture's seek path."""
+    info = ffmpeg_capture._probe(str(path))
+    frames = decode_reference.raw_frames(str(path), info.width, info.height)
+    pts = decode_reference.frame_pts(str(path))
+    return [(ordinal, pts[ordinal], frames[ordinal])
+            for ordinal in range(min(end_idx, len(frames))) if ordinal % interval == 0]
 
 
 def _assert_phase1_matches(scanner, det, text_frames, reference):
@@ -192,7 +180,7 @@ def test_phase1_samples_match_the_every_frame_loop(clips, clip_id, time_start, t
 
 
 @pytest.mark.parametrize("clip_id", SDR_CLIPS)
-def test_phase1_samples_match_a_raw_pyav_decode(clips, clip_id):
+def test_phase1_samples_match_a_raw_ffmpeg_decode(clips, clip_id):
     scanner, det, text_frames = _run_phase1(clips[clip_id], None, None)
     _, end_idx, interval = _index_range(scanner, None, None)
     reference = _raw_decode_every_nth(clips[clip_id], end_idx, interval)
@@ -201,15 +189,15 @@ def test_phase1_samples_match_a_raw_pyav_decode(clips, clip_id):
 
 def test_phase1_converts_only_the_frames_it_samples(clips, monkeypatch):
     """The speedup itself: frames phase 1 does not sample are never
-    converted to BGR. read() is the only PyAVCapture method that converts."""
+    converted to BGR. read() is the only FFmpegCapture method that converts."""
     reads = []
-    real_read = PyAVCapture.read
+    real_read = FFmpegCapture.read
 
     def counting_read(self):
         reads.append(1)
         return real_read(self)
 
-    monkeypatch.setattr(PyAVCapture, "read", counting_read)
+    monkeypatch.setattr(FFmpegCapture, "read", counting_read)
     scanner, _, text_frames = _run_phase1(clips["8bit-h264"], "0:00.72", "0:03.5")
     start_idx, end_idx, interval = _index_range(scanner, "0:00.72", "0:03.5")
 
@@ -232,7 +220,7 @@ def _make_graph_clip(path, pix_fmt, size):
     )
 
 
-# Every graph configuration PyAVCapture can build: none, tone map, downscale,
+# Every graph configuration FFmpegCapture can build: none, tone map, downscale,
 # downscale + in-graph crop. Skipping graph pushes for grabbed frames is only
 # safe if none of them carries state from one frame to the next.
 GRAB_CONFIGS = [
@@ -262,7 +250,7 @@ def test_grab_then_read_matches_reading_every_frame(clips, tmp_path, kind, targe
         _make_graph_clip(path, pix_fmt, size)
 
     def open_cap():
-        return PyAVCapture(str(path), decode_target_height=target_height, crop_rect=crop)
+        return FFmpegCapture(str(path), decode_target_height=target_height, crop_rect=crop)
 
     interval, seek_to, count = 3, 7, 25
 
@@ -296,22 +284,3 @@ def test_grab_then_read_matches_reading_every_frame(clips, tmp_path, kind, targe
         while cap.grab():
             pass
         assert cap.read() == (False, None)
-
-
-def test_ffmpeg_fallback_phase1_matches_its_every_frame_loop(clips, monkeypatch):
-    """The non-reference subprocess backend has no cheap skip, but phase 1
-    must still sample the same frames through it."""
-
-    class CpuFFmpegCapture(FFmpegNVDECCapture):
-        def __init__(self, video_path, **kwargs):
-            super().__init__(video_path, use_gpu=False, **kwargs)
-
-    if not pyav_adapter.FFMPEG_AVAILABLE:
-        pytest.skip("ffmpeg CLI not available")
-    monkeypatch.setattr("videocr.label_scanner.Capture", CpuFFmpegCapture)
-
-    path = clips["8bit-h264"]
-    scanner, det, text_frames = _run_phase1(path, "0:00.72", "0:03.5")
-    start_idx, end_idx, interval = _index_range(scanner, "0:00.72", "0:03.5")
-    reference = _every_frame_loop(path, start_idx, end_idx, interval, capture=CpuFFmpegCapture)
-    _assert_phase1_matches(scanner, det, text_frames, reference)

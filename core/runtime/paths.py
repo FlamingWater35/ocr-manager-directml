@@ -1,27 +1,24 @@
 """Where OCR Manager keeps its own files, and whether it runs from a bundle.
 
-- **Data dir** (`data_dir()`): the per-user directory for the engine, logs
-  and anything else the app owns outside project folders.
+Windows only. The build ships a Windows bundle and nothing else, so there is
+no per-OS branch left here: the data dir is `%LOCALAPPDATA%\\ocr-manager` and
+`$OCR_MANAGER_DATA_DIR` overrides it (tests and CI use that).
 
-  | OS      | default                                             |
-  |---------|-----------------------------------------------------|
-  | Linux   | `$XDG_DATA_HOME/ocr-manager`, else `~/.local/share/ocr-manager` |
-  | Windows | `%LOCALAPPDATA%\\ocr-manager`                        |
-  | macOS   | `~/Library/Application Support/ocr-manager`         |
-
-  `$OCR_MANAGER_DATA_DIR` overrides all of them (tests and CI use it).
-
+- **Data dir** (`data_dir()`): the per-user directory for the downloaded
+  OCR models, the logs, and anything else the app owns outside project
+  folders.
+- **Models dir** (`models_dir()`): `<data>/models`, where RapidOCR keeps the
+  recognition models that are not bundled in the wheel (see
+  `videocr/ocr_engine.py`). The bundled PP-OCRv6 pair is read from
+  site-packages, which a bundle must not write to.
 - **Bundle** (`current_bundle()`): a portable build sets
-  `$OCR_MANAGER_BUNDLE=<root>`; `<root>/bundle.json` says which build it is
-  and `<root>/constraints.txt` pins what the bundled interpreter already has.
-  With the variable unset the app runs in developer mode: paddle comes from
-  the environment and nothing is ever installed.
+  `$OCR_MANAGER_BUNDLE=<root>`; `<root>/bundle.json` says which build it is.
+  With the variable unset the app runs in developer mode.
 """
 from __future__ import annotations
 
 import json
 import os
-import platform
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -31,46 +28,44 @@ APP_DIR_NAME = "ocr-manager"
 DATA_DIR_ENV = "OCR_MANAGER_DATA_DIR"
 BUNDLE_ENV = "OCR_MANAGER_BUNDLE"
 BUNDLE_FILE = "bundle.json"
-CONSTRAINTS_FILE = "constraints.txt"
 LOG_FILE = "ocr-manager.log"
+HOST_OS = "win"
+HOST_ARCH = "x86_64"
 
 
-def host_os(platform_name: str | None = None) -> str:
-    """"linux", "win" or "mac" -- the names bundle.json uses."""
-    name = sys.platform if platform_name is None else platform_name
-    if name.startswith("win"):
-        return "win"
-    if name == "darwin":
-        return "mac"
-    return "linux"
+def host_os() -> str:
+    """"win" -- the only OS this build supports.
+
+    Kept as a function (rather than a constant in the call sites) because
+    `bundle.json` records it and the state files compare against it.
+    """
+    return HOST_OS
 
 
-def host_arch(machine: str | None = None) -> str:
-    """"x86_64" or "arm64" (anything else is returned lower-cased as is)."""
-    value = (platform.machine() if machine is None else machine).lower()
-    if value in ("x86_64", "amd64", "x64"):
-        return "x86_64"
-    if value in ("arm64", "aarch64"):
-        return "arm64"
-    return value
+def host_arch() -> str:
+    """"x86_64" -- the only architecture the Windows bundle is built for."""
+    return HOST_ARCH
 
 
-def data_dir(env: Mapping[str, str] | None = None, os_name: str | None = None,
-             home: Path | None = None) -> Path:
+def supported_host() -> bool:
+    """True when this process is the platform the app is built for."""
+    return sys.platform.startswith("win")
+
+
+def data_dir(env: Mapping[str, str] | None = None, home: Path | None = None) -> Path:
     """The app's per-user data directory (not created here)."""
     env = os.environ if env is None else env
     override = env.get(DATA_DIR_ENV, "").strip()
     if override:
         return Path(override).expanduser()
-    os_name = host_os() if os_name is None else os_name
     home = Path.home() if home is None else home
-    if os_name == "win":
-        base = env.get("LOCALAPPDATA", "").strip()
-        return (Path(base) if base else home / "AppData" / "Local") / APP_DIR_NAME
-    if os_name == "mac":
-        return home / "Library" / "Application Support" / APP_DIR_NAME
-    xdg = env.get("XDG_DATA_HOME", "").strip()
-    return (Path(xdg) if xdg else home / ".local" / "share") / APP_DIR_NAME
+    base = env.get("LOCALAPPDATA", "").strip()
+    return (Path(base) if base else home / "AppData" / "Local") / APP_DIR_NAME
+
+
+def models_dir(data: Path | None = None, env: Mapping[str, str] | None = None) -> Path:
+    """Where RapidOCR caches recognition models that are not in the wheel."""
+    return (data_dir(env) if data is None else Path(data)) / "models"
 
 
 def logs_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -97,10 +92,6 @@ class Bundle:
     version: str
     os: str
     arch: str
-
-    @property
-    def constraints(self) -> Path:
-        return self.root / CONSTRAINTS_FILE
 
 
 def current_bundle(env: Mapping[str, str] | None = None) -> Bundle | None:

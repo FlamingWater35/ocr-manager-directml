@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from core.detect import ocr_view as OV
+from videocr import ffmpeg_capture
 
 H, W = 54, 1344
 CENTRE_X0 = (W - H) // 2  # the gate's centre square, as videocr/video.py computes it
@@ -237,24 +238,12 @@ def _encode_cmd(path, size, pix_fmt, frames, gop, hdr):
 
 
 def _stream_pix_fmt(path):
-    import av
-
-    container = av.open(str(path))
-    try:
-        return container.streams.video[0].codec_context.pix_fmt
-    finally:
-        container.close()
+    info = ffmpeg_capture._probe(str(path))
+    return info.pix_fmt
 
 
 def _stream_is_pq(path):
-    import av
-    from videocr import pyav_adapter
-
-    container = av.open(str(path))
-    try:
-        return int(container.streams.video[0].codec_context.color_trc) == pyav_adapter._TRC_SMPTE2084
-    finally:
-        container.close()
+    return ffmpeg_capture._probe(str(path)).transfer == "smpte2084"
 
 
 @pytest.fixture(scope="session")
@@ -370,7 +359,8 @@ def test_a_file_that_cannot_be_opened_yields_no_strips(tmp_path):
 def _fake_capture_class(fail_seek_at=None, fail_open_decoder=False, fail_close=None):
     """640x360 @ 25 fps; frame k is filled with k % 256 so a strip names the
     frame it came from. fail_close: "decoder" (the per-worker captures) or
-    "every capture" raise an FFmpegError while closing."""
+    "every capture" raise OSError while closing -- what a decoder whose
+    ffmpeg exits badly raises."""
 
     class FakeCapture:
         def __init__(self, path, use_gpu=True, decode_target_height=None, crop_rect=None):
@@ -385,8 +375,7 @@ def _fake_capture_class(fail_seek_at=None, fail_open_decoder=False, fail_close=N
 
         def __exit__(self, *exc):
             if fail_close == "every capture" or (fail_close == "decoder" and self._decoder):
-                import av
-                raise av.error.FFmpegError(5, "close failed")
+                raise OSError(5, "close failed")
             return False
 
         def get(self, prop):
@@ -395,8 +384,7 @@ def _fake_capture_class(fail_seek_at=None, fail_open_decoder=False, fail_close=N
 
         def set(self, prop, value):
             if value == fail_seek_at:
-                import av
-                raise av.error.FFmpegError(5, "seek failed")
+                raise OSError(5, "seek failed")
             self._next = int(value)
             return True
 

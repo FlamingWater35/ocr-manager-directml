@@ -62,7 +62,7 @@ def digest(ass_text: str) -> str:
 
 def run_case(case: Case, root: Path) -> str:
     from videocr.api import get_subtitles
-    from videocr.pyav_adapter import assert_reference_backend
+    from videocr.ffmpeg_capture import assert_reference_backend
 
     assert_reference_backend()
     video = root / case.project / case.file

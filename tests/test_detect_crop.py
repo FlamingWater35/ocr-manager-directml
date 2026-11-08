@@ -1,10 +1,10 @@
 import subprocess
 
-import av
 import cv2
 import numpy as np
 import pytest
 
+from core import ffmpeg as ffmpeg_tool
 from core.detect import crop
 
 
@@ -718,6 +718,40 @@ def _detect_crop_with_fakes(monkeypatch, vad_times, predict_fn, duration=60.0, c
     return crop.detect_crop("dummy.mp4", duration, FakeEngine(), cancel_check=cancel_check, **detect_kwargs)
 
 
+def _detect_crop_at_resolution(monkeypatch, dims, predict=None):
+    """detect_crop() at `dims`, with vad/ffprobe faked and a spy on the one
+    fetch layer there is now. Returns (result, fetch_calls)."""
+    w, h = dims
+    requested = [float(t) for t in range(10, 40)]
+    fetch_calls = {"n": 0}
+    last_pairs: list = []
+
+    monkeypatch.setattr(crop, "_probe_source", lambda video_path: (*dims, None))
+    monkeypatch.setattr(crop.vad, "probe_times",
+                        lambda video_path, duration_sec, window_frac=(0.4, 0.6), cancel_check=None: list(requested))
+
+    def fake_grab_frames_with_times(video_path, times, band_frac, target_height, known_dims=None, transfer=None):
+        fetch_calls["n"] += 1
+        pairs = [(t, np.zeros((4, 4, 3), dtype=np.uint8)) for t in times]
+        last_pairs[:] = pairs
+        return pairs, (w, h, w, h, 0, 0, w, h)
+
+    monkeypatch.setattr(crop, "_grab_frames_with_times", fake_grab_frames_with_times)
+
+    class FakeEngine:
+        def predict(self, frames):
+            if predict is not None:
+                predict()
+            line_top, line_bottom = h * 0.92, h * 0.96
+            return [
+                {"dt_scores": [1.0], "dt_polys": [_poly(w * 0.4 - int(t), line_top, w * 0.6 + int(t), line_bottom)]}
+                for t, _ in last_pairs
+            ]
+
+    result = crop.detect_crop("dummy-4k.mp4", 60.0, FakeEngine())
+    return result, fetch_calls["n"]
+
+
 def _detect_crop_with_mocked_rounds(monkeypatch, round_outcomes, vad_times=None, duration=60.0,
                                      cancel_check=None):
     """Mocks _run_round() itself (not the frame-grab/engine layer), so
@@ -745,7 +779,7 @@ def _detect_crop_with_mocked_rounds(monkeypatch, round_outcomes, vad_times=None,
     calls = {"n": 0}
 
     def fake_run_round(video_path, times, det_engine, band_frac, consensus, frame_size,
-                        settings, known_dims=None, cancel_check=None, fetcher=None, transfer=None):
+                        settings, known_dims=None, cancel_check=None, transfer=None):
         idx = calls["n"]
         calls["n"] += 1
         assert idx < len(round_outcomes), f"_run_round called more times than scripted ({idx + 1})"
@@ -960,7 +994,7 @@ def test_safety_net_fallback_flag_fires_for_a_truly_unanticipated_no_box_path(mo
     )
 
     def fake_run_round(video_path, times, det_engine, band_frac, consensus, frame_size,
-                        settings, known_dims=None, cancel_check=None, fetcher=None, transfer=None):
+                        settings, known_dims=None, cancel_check=None, transfer=None):
         # raw_hits > 0 so neither fallback round ever runs -- only
         # _union_extent_detailed()/aggregate_box() decide box/flag from
         # here, and those are the ones forced to "find nothing" below.
@@ -1174,165 +1208,6 @@ def test_failed_grabs_are_not_recorded_but_still_spend_the_probe_budget(monkeypa
     )
 
 
-class _RecordingFetcher:
-    """Stands in for crop._PersistentFrameFetcher: returns a frame for every
-    requested time, recorded under that requested time, with identity
-    geometry at the source's own resolution."""
-    instances: list = []
-
-    def __init__(self, video_path, known_dims, pool_size=crop.PERSISTENT_POOL_SIZE):
-        self.video_path = video_path
-        self.known_dims = known_dims
-        self.pool_size = pool_size
-        self.closed = False
-        self.fetched: list[float] = []
-        self.last_pairs: list = []
-        _RecordingFetcher.instances.append(self)
-
-    def fetch(self, times, band_frac, target_height):
-        w, h = self.known_dims
-        pairs = [(t, np.zeros((4, 4, 3), dtype=np.uint8)) for t in times]
-        self.fetched.extend(t for t, _ in pairs)
-        self.last_pairs = pairs
-        return pairs, (w, h, w, h, 0, 0, w, h)
-
-    def close(self):
-        self.closed = True
-
-
-def _detect_crop_at_resolution(monkeypatch, dims, predict=None):
-    """detect_crop() with vad/ffprobe faked, a spy on the one-shot grab
-    layer and _RecordingFetcher standing in for the persistent one. Returns
-    (result, one_shot_calls)."""
-    _RecordingFetcher.instances = []
-    w, h = dims
-    requested = [float(t) for t in range(10, 40)]
-    one_shot_calls = {"n": 0}
-    last_pairs: list = []
-
-    monkeypatch.setattr(crop, "_probe_source", lambda video_path: (*dims, None))
-    monkeypatch.setattr(crop.vad, "probe_times",
-                        lambda video_path, duration_sec, window_frac=(0.4, 0.6), cancel_check=None: list(requested))
-    monkeypatch.setattr(crop, "_PersistentFrameFetcher", _RecordingFetcher, raising=False)
-
-    def fake_grab_frames_with_times(video_path, times, band_frac, target_height, known_dims=None, transfer=None):
-        one_shot_calls["n"] += 1
-        pairs = [(t, np.zeros((4, 4, 3), dtype=np.uint8)) for t in times]
-        last_pairs[:] = pairs
-        return pairs, (w, h, w, h, 0, 0, w, h)
-
-    monkeypatch.setattr(crop, "_grab_frames_with_times", fake_grab_frames_with_times)
-
-    class FakeEngine:
-        def predict(self, frames):
-            if predict is not None:
-                predict()
-            pairs = _RecordingFetcher.instances[-1].last_pairs if _RecordingFetcher.instances else last_pairs
-            line_top, line_bottom = h * 0.92, h * 0.96
-            return [
-                {"dt_scores": [1.0], "dt_polys": [_poly(w * 0.4 - int(t), line_top, w * 0.6 + int(t), line_bottom)]}
-                for t, _ in pairs
-            ]
-
-    result = crop.detect_crop("dummy-4k.mp4", 60.0, FakeEngine())
-    return result, one_shot_calls["n"]
-
-
-@pytest.mark.parametrize("dims,persistent", [
-    ((1920, 888), False),    # slay: one-shot grabs measured faster
-    ((1920, 1080), False),   # the crossover boundary itself stays on one-shot grabs
-    ((3840, 2160), True),    # xwz: persistent containers measured faster
-])
-def test_fetch_strategy_follows_the_measured_resolution_crossover(monkeypatch, dims, persistent):
-    """Task 2b requirement 2: persistent containers only where they measurably
-    win. Above the crossover every probe goes through the persistent fetcher
-    (never a one-shot ffmpeg grab), what it returns is what the result
-    records, and it is closed once detection finishes; at or below it,
-    nothing is opened and one-shot grabs are used exactly as before."""
-    result, one_shot_calls = _detect_crop_at_resolution(monkeypatch, dims)
-
-    assert result.box is not None
-    if persistent:
-        assert len(_RecordingFetcher.instances) == 1, "one persistent fetcher per detect_crop() call"
-        fetcher = _RecordingFetcher.instances[0]
-        assert one_shot_calls == 0, f"{dims}: {one_shot_calls} batches went through one-shot grabs"
-        assert result.sample_pts == fetcher.fetched
-        assert set(result.hit_pts) <= set(fetcher.fetched)
-        assert fetcher.closed, "the persistent containers must be released when detection ends"
-    else:
-        assert _RecordingFetcher.instances == [], f"{dims}: persistent containers opened below the crossover"
-        assert one_shot_calls > 0
-
-
-def test_persistent_fetcher_is_closed_even_when_detection_raises(monkeypatch):
-    """Containers hold several decoded 4K reference frames each; an exception
-    from the detection engine (which detect_crop() lets propagate to the
-    adapter) must not leak them."""
-    def boom():
-        raise RuntimeError("engine failed")
-
-    with pytest.raises(RuntimeError, match="engine failed"):
-        _detect_crop_at_resolution(monkeypatch, (3840, 2160), predict=boom)
-
-    assert len(_RecordingFetcher.instances) == 1
-    assert _RecordingFetcher.instances[0].closed
-
-
-def test_persistent_fetcher_open_failure_falls_back_to_one_shot_grabs(monkeypatch, caplog):
-    """If the persistent containers cannot be opened (PyAV cannot read what
-    the ffmpeg CLI can), detection must still run on one-shot grabs, and say
-    so in the log rather than fail the file."""
-    class FailingFetcher:
-        def __init__(self, video_path, known_dims, pool_size=None):
-            raise OSError("cannot open container")
-
-    monkeypatch.setattr(crop, "_probe_source", lambda video_path: (3840, 2160, None))
-    monkeypatch.setattr(crop.vad, "probe_times",
-                        lambda video_path, duration_sec, window_frac=(0.4, 0.6), cancel_check=None: [float(t) for t in range(10, 40)])
-    monkeypatch.setattr(crop, "_PersistentFrameFetcher", FailingFetcher, raising=False)
-    last_chunk: list[float] = []
-
-    def fake_grab_frames_with_times(video_path, times, band_frac, target_height, known_dims=None, transfer=None):
-        last_chunk[:] = times
-        pairs = [(t, np.zeros((4, 4, 3), dtype=np.uint8)) for t in times]
-        return pairs, (3840, 2160, 3840, 2160, 0, 0, 3840, 2160)
-
-    class FakeEngine:
-        def predict(self, frames):
-            return [{"dt_scores": [1.0], "dt_polys": [_poly(1500 - int(t), 1990, 2300 + int(t), 2080)]}
-                    for t in last_chunk]
-
-    monkeypatch.setattr(crop, "_grab_frames_with_times", fake_grab_frames_with_times)
-    with caplog.at_level("WARNING"):
-        result = crop.detect_crop("dummy-unopenable.mp4", 60.0, FakeEngine())
-
-    assert result.box is not None
-    assert any("dummy-unopenable.mp4" in rec.message and rec.levelname == "WARNING" for rec in caplog.records)
-
-
-def test_grab_frames_opens_no_more_persistent_containers_than_requested_times(monkeypatch):
-    """Each persistent 4K container holds several decoded reference frames;
-    grabbing one frame must not open a pool of five."""
-    opened: list[int] = []
-
-    class CountingFetcher:
-        def __init__(self, video_path, known_dims, pool_size=crop.PERSISTENT_POOL_SIZE):
-            opened.append(pool_size)
-
-        def fetch(self, times, band_frac, target_height):
-            pairs = [(t, np.zeros((4, 4, 3), dtype=np.uint8)) for t in times]
-            return pairs, (3840, 2160, 3840, 2160, 0, 0, 3840, 2160)
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(crop, "_probe_source", lambda video_path: (3840, 2160, None))
-    monkeypatch.setattr(crop, "_PersistentFrameFetcher", CountingFetcher, raising=False)
-
-    assert len(crop.grab_frames("dummy-4k.mp4", [12.0])) == 1
-    assert opened == [1], f"containers opened for a single requested time: {opened}"
-
-
 def _hdr_tags(transfer):
     return ["-vf", f"setparams=color_primaries=bt2020:color_trc={transfer}:colorspace=bt2020nc",
             "-color_trc", transfer, "-color_primaries", "bt2020", "-colorspace", "bt2020nc"]
@@ -1358,7 +1233,7 @@ _CLIPS = {
                                             "keyint=50:bframes=4:b-pyramid=1:temporal-layers=3:log-level=error"]]),
     # 10-bit like the 4K reference sources, a non-millisecond time base, and
     # large enough for an odd crop plus a real downscale (see
-    # test_persistent_fetcher_matches_one_shot_on_10bit_hevc_with_an_odd_crop_and_a_real_downscale).
+    # test_crop_invariant_holds_across_decode_ratios' 10-bit rows).
     "hevc10-ntsc-film": dict(size="640x360", rate="24000/1001", pix_fmt="yuv420p10le",
                              encoders=[["-c:v", "libx265", "-x265-params",
                                         "keyint=50:bframes=4:b-pyramid=1:log-level=error"]]),
@@ -1424,146 +1299,26 @@ def _one_shot(video, t, geometry):
                           transfer=crop._probe_source(str(video))[2])
 
 
-@pytest.mark.parametrize("pool_size", [crop.PERSISTENT_POOL_SIZE, 1])
-@pytest.mark.parametrize("clip", sorted(_CLIPS))
-def test_persistent_fetcher_frames_match_one_shot_and_recorded_times_refetch_them(encoded_clips, clip, pool_size):
-    """Task 2b requirement 4, on real decoding. Every frame the persistent
-    fetcher returns is pixel-identical to the one-shot accurate grab at the
-    requested time (switching fetch strategy cannot change what is analysed),
-    and the time it records re-fetches exactly that frame -- through the
-    persistent path and through the one-shot path. pool_size=1 reuses a
-    single decoder across the backward seeks in _ROUND_TRIP_TIMES."""
-    video = _clip(encoded_clips, clip)
-    dims = crop._probe_dimensions(str(video))
-
-    fetcher = crop._PersistentFrameFetcher(str(video), dims, pool_size=pool_size)
-    try:
-        pairs, geometry = fetcher.fetch(_ROUND_TRIP_TIMES, 0.55, crop.TARGET_HEIGHT)
-        again, _ = fetcher.fetch([t for t, _ in pairs], 0.55, crop.TARGET_HEIGHT)
-    finally:
-        fetcher.close()
-
-    assert len(pairs) == len(again) == len(_ROUND_TRIP_TIMES)
-    for req, (recorded, frame), (_t, refetched) in zip(_ROUND_TRIP_TIMES, pairs, again):
-        assert np.array_equal(frame, _one_shot(video, req, geometry)), (
-            f"{clip}: frame for t={req} differs from the one-shot accurate grab"
-        )
-        assert np.array_equal(refetched, frame), (
-            f"{clip}: recorded time {recorded} (requested {req}) re-fetches a different frame"
-        )
-        assert np.array_equal(_one_shot(video, recorded, geometry), frame), (
-            f"{clip}: recorded time {recorded} (requested {req}) re-fetches a different frame one-shot"
-        )
-        assert recorded == req, f"{clip}: recorded {recorded}, requested {req}"
-        # testsrc2 repeats the odd frame at 24000/1001 fps, so require the
-        # frame to differ from at least one neighbour, not both.
-        assert not (np.array_equal(frame, _one_shot(video, req + 0.05, geometry))
-                    and np.array_equal(frame, _one_shot(video, max(0.0, req - 0.05), geometry))), (
-            f"{clip}: clip frames are not distinguishable around t={req}, test proves nothing"
-        )
-
-
-# AV1 encoders in order of preference for the skipping guard below. Only a
-# clip that actually contains non-reference frames can catch skipping being
-# enabled for AV1: svt-av1's hierarchical mini-GOPs and av1_nvenc's B-frames
-# do; libaom-av1 emitted none in any mode tried (good quality, realtime,
-# 16/35 lag frames, pyramid height 4), so it is last and only ever produces
-# a visible skip, never a silent pass.
-_AV1_SKIP_GUARD_ENCODERS = [
-    ["-c:v", "libsvtav1", "-g", "50"],
-    ["-c:v", "av1_nvenc", "-bf", "3", "-g", "50"],
-    ["-c:v", "libaom-av1", "-cpu-used", "8", "-g", "50"],
-]
-
-
-def test_non_reference_skipping_stays_off_where_it_returns_a_different_frame(monkeypatch, tmp_path):
-    """libdav1d (AV1) never outputs a frame it was told to skip, so skipping
-    non-reference frames on the way to an accurate-seek target silently lands
-    on a LATER frame. The persistent fetcher must decode every AV1 frame. The
-    clip is first checked to be able to show the difference -- skipping
-    forced on must lose at least one frame -- otherwise the guard would pass
-    no matter what, and the test skips saying why for each encoder tried."""
-    outcomes = []
-    for codec_args in _AV1_SKIP_GUARD_ENCODERS:
-        encoder = codec_args[1]
-        video = tmp_path / f"{encoder}.mp4"
-        proc = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-             "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25:duration=3",
-             "-pix_fmt", "yuv420p", *codec_args, str(video)],
-            capture_output=True,
-        )
-        if proc.returncode != 0:
-            last_line = (proc.stderr.decode(errors="replace").strip().splitlines() or ["no output"])[-1]
-            outcomes.append(f"{encoder}: cannot encode ({last_line})")
-            continue
-        dims = crop._probe_dimensions(str(video))
-        with av.open(str(video)) as container:
-            decoder_name = container.streams.video[0].codec_context.name
-
-        def lost_frames():
-            fetcher = crop._PersistentFrameFetcher(str(video), dims)
-            try:
-                pairs, geometry = fetcher.fetch(_ROUND_TRIP_TIMES, 0.55, crop.TARGET_HEIGHT)
-            finally:
-                fetcher.close()
-            assert len(pairs) == len(_ROUND_TRIP_TIMES)
-            return sum(not np.array_equal(frame, _one_shot(video, t, geometry)) for t, frame in pairs)
-
-        with monkeypatch.context() as forced:
-            forced.setattr(crop, "NONREF_SKIP_EXACT_CODECS", crop.NONREF_SKIP_EXACT_CODECS | {decoder_name})
-            lost_when_forced = lost_frames()
-        if lost_when_forced == 0:
-            outcomes.append(f"{encoder}: clip has no non-reference frames, cannot show the difference")
-            continue
-
-        assert lost_frames() == 0, (
-            f"{decoder_name} ({encoder} clip): the persistent fetcher returned a different frame than the "
-            f"one-shot grab -- non-reference skipping must stay off for this decoder"
-        )
-        return
-    pytest.skip("no AV1 clip able to expose non-reference skipping could be encoded here: " + "; ".join(outcomes))
-
-
-@pytest.mark.parametrize("clip", ["hevc10-ntsc-film", "hevc10-pq", "hevc10-hlg"])
-def test_persistent_fetcher_matches_one_shot_on_10bit_hevc_with_an_odd_crop_and_a_real_downscale(encoded_clips, clip):
-    """The identity above only exercises a no-resampling geometry. PyAV
-    bundles its own FFmpeg while one-shot grabs use the system ffmpeg, so
-    guard the conversions that can drift between them: 10-bit to bgr24, an
-    odd crop height, and a real downscale -- and, on PQ and HLG sources, the
-    tone map."""
-    video = _clip(encoded_clips, clip)
-    dims = crop._probe_dimensions(str(video))
-    fetcher = crop._PersistentFrameFetcher(str(video), dims)
-    try:
-        pairs, geometry = fetcher.fetch(_ROUND_TRIP_TIMES, 0.37, 97)
-    finally:
-        fetcher.close()
-
-    assert geometry == (640, 360, 640, 133, 0, 227, 466, 97), "expected an odd crop and a real downscale"
-    assert len(pairs) == len(_ROUND_TRIP_TIMES)
-    for req, (_t, frame) in zip(_ROUND_TRIP_TIMES, pairs):
-        assert np.array_equal(frame, _one_shot(video, req, geometry)), (
-            f"t={req}: persistent frame differs from the one-shot grab"
-        )
-
-
 def _stream_transfer(video):
-    with av.open(str(video)) as container:
-        return int(container.streams.video[0].codec_context.color_trc)
+    """The stream's colour transfer as AVCOL_TRC_* (16 = PQ, 18 = HLG)."""
+    from videocr.ffmpeg_capture import _TRC_ARIB_STD_B67, _TRC_SMPTE2084, _probe
+
+    transfer = _probe(str(video)).transfer
+    return {"smpte2084": _TRC_SMPTE2084, "arib-std-b67": _TRC_ARIB_STD_B67}[transfer]
 
 
 def _ocr_pass_band(video, t, geometry):
-    """The frame the OCR pass's own capture (videocr.pyav_adapter, which
-    tone-maps PQ and HLG) decodes at `t` -- the first frame at or after it,
+    """The frame the OCR pass's own decoder (videocr.ffmpeg_capture, which
+    tone-maps PQ and HLG) produces at `t` -- the first frame at or after it,
     the same frame a probe at `t` fetches -- cut to the probe's band and, if
     the geometry downscales, resized to the probe's size with cv2 (so only
     close to a probe, not identical, in that case)."""
-    from videocr.pyav_adapter import PyAVCapture
+    from videocr.ffmpeg_capture import FFmpegCapture, tone_map_filters
 
     _w, _h, cw, ch, cx, cy, ow, oh = geometry
-    with PyAVCapture(str(video)) as cap:
-        assert cap._needs_tonemap, "the OCR pass does not tone-map this clip; the test would prove nothing"
+    with FFmpegCapture(str(video)) as cap:
+        assert tone_map_filters(cap._info.transfer), (
+            "the OCR pass does not tone-map this clip; the test would prove nothing")
         assert cap.seek_to_pts(crop._seek_seconds(t))
         ok, frame = cap.read()
     assert ok
@@ -1586,9 +1341,8 @@ def _mean_abs_diff(a, b):
 HDR_TRANSFERS = {"hevc10-pq": 16, "hevc10-hlg": 18}  # AVCOL_TRC_SMPTE2084, AVCOL_TRC_ARIB_STD_B67
 
 
-@pytest.mark.parametrize("path", ["one-shot", "persistent"])
 @pytest.mark.parametrize("clip", sorted(HDR_TRANSFERS))
-def test_hdr_probe_frames_are_tone_mapped_like_the_ocr_pass(encoded_clips, clip, path):
+def test_hdr_probe_frames_are_tone_mapped_like_the_ocr_pass(encoded_clips, clip):
     """I2: spec section 11 -- detection sampling uses the OCR pass's tone-map
     chain. Measured on synthetic PQ/HLG clips with burned-in subtitles, the
     un-tone-mapped probes differed by 74-114 levels on >99% of pixels and
@@ -1597,16 +1351,8 @@ def test_hdr_probe_frames_are_tone_mapped_like_the_ocr_pass(encoded_clips, clip,
     tone-mapped pixels."""
     video = _clip(encoded_clips, clip)
     assert _stream_transfer(video) == HDR_TRANSFERS[clip], "clip is not tagged HDR; the test would prove nothing"
-    dims = crop._probe_dimensions(str(video))
     times = [0.3, 1.37, 2.2]
-    if path == "one-shot":
-        pairs, geometry = crop._grab_frames_with_times(str(video), times, 0.55, crop.TARGET_HEIGHT)
-    else:
-        fetcher = crop._PersistentFrameFetcher(str(video), dims)
-        try:
-            pairs, geometry = fetcher.fetch(times, 0.55, crop.TARGET_HEIGHT)
-        finally:
-            fetcher.close()
+    pairs, geometry = crop._grab_frames_with_times(str(video), times, 0.55, crop.TARGET_HEIGHT)
     _w, _h, cw, ch, _cx, _cy, ow, oh = geometry
     assert (ow, oh) == (cw, ch), "expected a geometry with no resampling"
     assert [t for t, _ in pairs] == times
@@ -1615,18 +1361,15 @@ def test_hdr_probe_frames_are_tone_mapped_like_the_ocr_pass(encoded_clips, clip,
         assert _mean_abs_diff(_untone_mapped_band(video, t, geometry), reference) > 20, (
             "tone mapping barely changes this clip; the test would prove nothing")
         assert np.array_equal(frame, reference), (
-            f"{clip} {path} t={t}: probe is not the OCR pass's tone-mapped frame "
+            f"{clip} t={t}: probe is not the OCR pass's tone-mapped frame "
             f"(mean |diff| {_mean_abs_diff(frame, reference):.1f} levels)")
 
 
-@pytest.mark.parametrize("path", ["one-shot", "persistent"])
 @pytest.mark.parametrize("clip", sorted(HDR_TRANSFERS))
-def test_detect_crop_analyses_tone_mapped_frames_on_hdr_sources(monkeypatch, encoded_clips, clip, path):
-    """End to end: detect_crop() has to hand the engine tone-mapped probes on
-    either fetch path, including after a real downscale (a band taller than
-    the probe height)."""
+def test_detect_crop_analyses_tone_mapped_frames_on_hdr_sources(monkeypatch, encoded_clips, clip):
+    """End to end: detect_crop() has to hand the engine tone-mapped probes,
+    including after a real downscale (a band taller than the probe height)."""
     video = _clip(encoded_clips, clip)
-    monkeypatch.setattr(crop, "_prefers_persistent_fetch", lambda frame_size: path == "persistent", raising=False)
     monkeypatch.setattr(crop, "TARGET_HEIGHT", 120)
     monkeypatch.setattr(crop.vad, "probe_times",
                         lambda video_path, duration_sec, window_frac=(0.4, 0.6), cancel_check=None: [0.3, 1.37, 2.2])
@@ -1644,7 +1387,7 @@ def test_detect_crop_analyses_tone_mapped_frames_on_hdr_sources(monkeypatch, enc
         untone_mapped = _untone_mapped_band(video, t, geometry)
         assert _mean_abs_diff(untone_mapped, reference) > 20
         assert _mean_abs_diff(analysed, reference) < 3.0, (
-            f"{clip} {path} t={t}: analysed frame is {_mean_abs_diff(analysed, reference):.1f} levels "
+            f"{clip} t={t}: analysed frame is {_mean_abs_diff(analysed, reference):.1f} levels "
             f"from the OCR pass's tone-mapped frame (untone-mapped: {_mean_abs_diff(untone_mapped, reference):.1f})")
 
 
@@ -1666,16 +1409,14 @@ class _FrameRecordingEngine:
         return results
 
 
-@pytest.mark.parametrize("path", ["one-shot", "persistent"])
 @pytest.mark.parametrize("clip", ["h264-ntsc-film", "hevc10-ntsc-film"])
-def test_recorded_sample_and_hit_pts_refetch_exactly_the_analysed_frames(monkeypatch, encoded_clips, clip, path):
+def test_recorded_sample_and_hit_pts_refetch_exactly_the_analysed_frames(monkeypatch, encoded_clips, clip):
     """Task 2b requirement 4, end to end: every time detect_crop() records in
     sample_pts (and hit_pts, a subset) must re-fetch, through the same fetch
     path, exactly the frame that was analysed -- on a time base where frame
     timestamps are not whole milliseconds. The UI slider, the filmstrip and
     the full-frame retry all re-request these times."""
     video = _clip(encoded_clips, clip)
-    monkeypatch.setattr(crop, "_prefers_persistent_fetch", lambda frame_size: path == "persistent", raising=False)
     monkeypatch.setattr(crop.vad, "probe_times",
                         lambda video_path, duration_sec, window_frac=(0.4, 0.6), cancel_check=None: list(_ROUND_TRIP_TIMES))
     engine = _FrameRecordingEngine()
@@ -1689,104 +1430,8 @@ def test_recorded_sample_and_hit_pts_refetch_exactly_the_analysed_frames(monkeyp
     assert len(refetched) == len(result.sample_pts)
     for t, analysed, again in zip(result.sample_pts, engine.analysed, refetched):
         assert np.array_equal(again, analysed), (
-            f"{path}: recorded time {t} re-fetches a different frame than the one analysed"
+            f"{clip}: recorded time {t} re-fetches a different frame than the one analysed"
         )
-
-
-def test_persistent_path_falls_back_to_one_shot_grabs_when_a_whole_batch_fails(monkeypatch, encoded_clips, caplog):
-    """PyAV can open a file it then cannot decode (e.g. "cannot decode unknown
-    codec"). If every probe of a batch fails on the persistent path, that
-    batch and the rest of the file must go through one-shot grabs, with a
-    warning -- not be silently dropped and misreported as
-    speech-probes-exhausted / top-positioned?."""
-    video = _clip(encoded_clips, "h264-bframes")
-    monkeypatch.setattr(crop, "_prefers_persistent_fetch", lambda frame_size: True, raising=False)
-    monkeypatch.setattr(crop.vad, "probe_times",
-                        lambda video_path, duration_sec, window_frac=(0.4, 0.6), cancel_check=None: list(_ROUND_TRIP_TIMES))
-    attempts = {"n": 0}
-
-    def undecodable(self, t, geometry):
-        attempts["n"] += 1
-        raise ValueError("cannot decode unknown codec")
-
-    monkeypatch.setattr(crop._PersistentDecoder, "grab", undecodable)
-
-    with caplog.at_level("WARNING"):
-        result = crop.detect_crop(str(video), 3.0, _FrameRecordingEngine())
-
-    assert result.box is not None
-    for flag in (crop.FLAG_SPEECH_PROBES_EXHAUSTED, crop.FLAG_TOP_POSITIONED, crop.FLAG_UNKNOWN_REJECTION):
-        assert flag not in (result.flagged or ""), f"misreported as {result.flagged!r}"
-    assert result.sample_pts and set(result.sample_pts) == set(_ROUND_TRIP_TIMES)
-    assert attempts["n"] <= crop.PROBE_BATCH_SIZE, (
-        f"{attempts['n']} persistent grabs attempted: after a wholly failed batch the rest of the "
-        f"file must use one-shot grabs"
-    )
-    assert any(
-        rec.levelname == "WARNING" and str(video) in rec.getMessage() and "one-shot" in rec.getMessage()
-        for rec in caplog.records
-    ), "falling back to one-shot grabs must be logged"
-
-
-def test_persistent_fetcher_honours_the_container_start_offset(offset_video):
-    """Probe times, like `ffmpeg -ss`, are relative to the container's start;
-    the offset_video fixture's timestamps all begin at 1.5s. A persistent
-    decoder seeking in raw stream time would land on the wrong frame."""
-    requested = [0.05, 0.21, 0.33]
-    dims = crop._probe_dimensions(str(offset_video))
-    fetcher = crop._PersistentFrameFetcher(str(offset_video), dims)
-    try:
-        pairs, geometry = fetcher.fetch(requested, 0.55, crop.TARGET_HEIGHT)
-    finally:
-        fetcher.close()
-
-    assert [t for t, _ in pairs] == requested
-    for req, (_t, frame) in zip(requested, pairs):
-        assert np.array_equal(frame, _one_shot(offset_video, req, geometry))
-
-
-def test_persistent_fetcher_drops_and_reports_a_failed_grab_keeping_request_order(encoded_clips, caplog):
-    """grab_frames()'s contract carries over: a failed grab (here, past the
-    end of the clip) is dropped and logged, not raised, and the frames that
-    did succeed stay in request order."""
-    video = _clip(encoded_clips, "h264-bframes")
-    dims = crop._probe_dimensions(str(video))
-    fetcher = crop._PersistentFrameFetcher(str(video), dims)
-    try:
-        with caplog.at_level("WARNING"):
-            pairs, geometry = fetcher.fetch([1.01, 99.0, 0.5], 0.55, crop.TARGET_HEIGHT)
-    finally:
-        fetcher.close()
-
-    assert [t for t, _ in pairs] == [1.01, 0.5]
-    for t, frame in pairs:
-        assert np.array_equal(frame, _one_shot(video, t, geometry))
-    assert any("99.000" in rec.message and rec.levelname == "WARNING" for rec in caplog.records)
-
-
-def test_grab_frames_uses_persistent_containers_above_the_crossover_with_identical_frames(
-        monkeypatch, encoded_clips):
-    """grab_frames() (public) gains the persistent path without changing its
-    contract: frames in request order, identical to one-shot grabs. The clip
-    is small, so the crossover policy is forced on to exercise the path."""
-    video = _clip(encoded_clips, "hevc-bpyramid")
-    times = [2.03, 0.21, 1.37]
-    expected = crop.grab_frames(str(video), times)
-
-    one_shot_calls = {"n": 0}
-    real_grab_one = crop._grab_one
-
-    def counting_grab_one(*args, **kwargs):
-        one_shot_calls["n"] += 1
-        return real_grab_one(*args, **kwargs)
-
-    monkeypatch.setattr(crop, "_grab_one", counting_grab_one)
-    monkeypatch.setattr(crop, "_prefers_persistent_fetch", lambda frame_size: True, raising=False)
-    frames = crop.grab_frames(str(video), times)
-
-    assert one_shot_calls["n"] == 0, "above the crossover grab_frames() must not spawn one-shot grabs"
-    assert len(frames) == len(expected) == len(times)
-    assert all(np.array_equal(a, b) for a, b in zip(frames, expected))
 
 
 @pytest.mark.needs_media
@@ -1944,16 +1589,27 @@ def test_cancelling_while_audio_is_extracted_returns_a_cancelled_result_promptly
     """M6: detect_crop's cancel_check reaches audio extraction, so Cancel does
     not wait for ffmpeg; the result is cancelled with nothing probed (not
     no-speech, which would claim the file is silent)."""
-    import os
-    import shutil
+    import sys
     import time
 
-    real = shutil.which("ffmpeg")
-    fake = tmp_path / "bin" / "ffmpeg"
-    fake.parent.mkdir()
-    fake.write_text(f'#!/bin/sh\ncase " $* " in *" -vn "*) exec sleep 8;; esac\nexec "{real}" "$@"\n')
-    fake.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
+    # A Python script, not a shell script: it has to be a real process that
+    # kill() can end.  (Killing a .bat on Windows leaves its child holding the
+    # pipes open, so the call would not return promptly and the test would
+    # prove nothing.)  ffmpeg ships with the app, so the resolver is patched
+    # rather than PATH.
+    real = ffmpeg_tool.ffmpeg_path()
+    script = tmp_path / "fake_ffmpeg.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        "args = sys.argv[1:]\n"
+        "if '-vn' in args:\n"
+        "    time.sleep(8)\n"
+        "    sys.exit(0)\n"
+        f"sys.exit(subprocess.call([{real!r}, *args]))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ffmpeg_tool, "ffmpeg_argv",
+                        lambda *args: [sys.executable, str(script), *args])
 
     started = time.monotonic()
     result = crop.detect_crop(str(synthetic_audio_video), 10.0, _BrightBoxDetector(),

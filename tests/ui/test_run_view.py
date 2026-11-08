@@ -10,6 +10,7 @@ events a real RunJob sends, then drains them with
 from __future__ import annotations
 
 import stat
+import sys
 import time
 from pathlib import Path
 
@@ -643,28 +644,45 @@ def test_no_queued_hint_at_the_parallel_cap(make_window, tmp_project, fake_runne
 
 
 def test_parse_gpu_utilisation():
-    assert run_view_module.GPU_PROGRAM == "nvidia-smi"
-    assert run_view_module.GPU_ARGUMENTS == ["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"]
+    assert run_view_module.GPU_PROGRAM == "typeperf"
+    assert run_view_module.GPU_ARGUMENTS == [r"\GPU Engine(*)\Utilization Percentage", "-sc", "1"]
     assert run_view_module.GPU_POLL_MS == 2000
-    assert parse_gpu_utilisation("74\n") == 74
-    assert parse_gpu_utilisation(" 12\n80\n") == 80
-    assert parse_gpu_utilisation("[N/A]\n") is None
+    assert parse_gpu_utilisation(f"{HEADER}\n\"t\",\"74.000000\"") == 74
+    assert parse_gpu_utilisation(f"{HEADER}\n\"t\",\"12.000000\",\"80.000000\"") == 80
+    assert parse_gpu_utilisation(f'{HEADER}\n"t","[N/A]"') is None
     assert parse_gpu_utilisation("") is None
-    assert parse_gpu_utilisation("150\n") == 100
+    assert parse_gpu_utilisation(HEADER) is None
+    assert parse_gpu_utilisation(f"{HEADER}\n\"t\",\"150.000000\"") == 100
 
 
-def fake_nvidia_smi(tmp_path: Path, body: str) -> str:
-    script = tmp_path / "nvidia-smi"
-    script.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
-    script.chmod(script.stat().st_mode | stat.S_IXUSR)
-    return str(script)
+HEADER = '"t","\\HOST\\GPU Engine(pid_1_engtype_3D)\\Utilization Percentage"'
 
 
-def test_gpu_text_is_shown_from_nvidia_smi_while_the_run_view_shows_an_active_run(window, fake_runner, monkeypatch,
-                                                                                  tmp_path):
+def fake_typeperf(monkeypatch, tmp_path: Path, body: str, *, args_record: Path | None = None) -> Path:
+    """A stand-in for typeperf that runs `body` as a script.
+
+    It runs this interpreter rather than a `#!/bin/sh` file, because Windows
+    will not start an extensionless shell script from PATH -- `shutil.which`
+    skips it and the real typeperf answers instead.
+    """
+    script = tmp_path / "fake-typeperf.py"
+    prologue = ""
+    if args_record is not None:
+        prologue = f"import sys\nopen(r'{args_record}', 'w').write(' '.join(sys.argv[1:]))\n"
+    script.write_text(prologue + body, encoding="utf-8")
+    monkeypatch.setattr(run_view_module, "GPU_PROGRAM", sys.executable)
+    monkeypatch.setattr(run_view_module, "GPU_ARGUMENTS", [str(script)])
+    return script
+
+
+def sample(*values: str) -> str:
+    """A script printing one typeperf sample of `values`."""
+    return f"print({HEADER!r})\n" + "".join(f"print({value!r})\n" for value in values)
+
+
+def test_gpu_text_is_shown_while_the_run_view_shows_an_active_run(window, fake_runner, monkeypatch, tmp_path):
     arguments_file = tmp_path / "args.txt"
-    monkeypatch.setattr(run_view_module, "GPU_PROGRAM",
-                        fake_nvidia_smi(tmp_path, f'echo "$@" > {arguments_file}\necho 74'))
+    fake_typeperf(monkeypatch, tmp_path, sample('"t","74.000000"'), args_record=arguments_file)
     window.show()
     meter = window.run_view.gpu_meter
     assert not meter.is_polling()
@@ -684,10 +702,13 @@ def test_gpu_text_is_shown_from_nvidia_smi_while_the_run_view_shows_an_active_ru
     assert wait_for(lambda: not meter.busy())
 
 
-@pytest.mark.parametrize("body", [None, "exit 3", "echo '[N/A]'"], ids=["missing", "exit-code", "unparsable"])
-def test_gpu_text_is_hidden_when_nvidia_smi_fails(window, fake_runner, monkeypatch, tmp_path, body):
-    program = str(tmp_path / "no-such-nvidia-smi") if body is None else fake_nvidia_smi(tmp_path, body)
-    monkeypatch.setattr(run_view_module, "GPU_PROGRAM", program)
+@pytest.mark.parametrize("body", [None, "raise SystemExit(3)", sample('"t","[N/A]"')],
+                         ids=["missing", "exit-code", "unparsable"])
+def test_gpu_text_is_hidden_when_typeperf_fails(window, fake_runner, monkeypatch, tmp_path, body):
+    if body is None:
+        monkeypatch.setattr(run_view_module, "GPU_PROGRAM", str(tmp_path / "no-such-typeperf"))
+    else:
+        fake_typeperf(monkeypatch, tmp_path, body)
     window.show()
     start(window, fake_runner)
     meter = window.run_view.gpu_meter
@@ -698,7 +719,7 @@ def test_gpu_text_is_hidden_when_nvidia_smi_fails(window, fake_runner, monkeypat
 
 
 def test_gpu_polls_run_every_interval_one_at_a_time(window, fake_runner, monkeypatch, tmp_path):
-    monkeypatch.setattr(run_view_module, "GPU_PROGRAM", fake_nvidia_smi(tmp_path, "echo 5"))
+    fake_typeperf(monkeypatch, tmp_path, sample('"t","5.000000"'))
     monkeypatch.setattr(run_view_module, "GPU_POLL_MS", 50)
     window.show()
     start(window, fake_runner)

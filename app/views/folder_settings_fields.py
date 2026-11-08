@@ -21,11 +21,11 @@ from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QSpi
 from app.theme import tokens
 from app.widgets.base import ElidedLabel, SectionHeader
 
-# Every `lang` PaddleOCR 3.3.2 has a recognition model for (its
-# `_get_ocr_model_names`), minus the aliases "french" and "german" (fr, de).
-# Static on purpose: a frozen build installs Paddle on first run, so the sheet
-# cannot ask it. `tests/test_language_names.py` pins this against the
-# installed paddleocr.
+# Every `lang` the OCR engine can recognise (videocr.ocr_engine.route_for),
+# minus the aliases "french" and "german" (fr, de).
+# Static on purpose: this list does not depend on what is installed, so the
+# sheet cannot ask it. `tests/test_language_names.py` pins it against the
+# engine's own routes, so the menu reads the same on every machine.
 LANGUAGE_NAMES = {
     "ch": "Chinese", "chinese_cht": "Chinese (Traditional)", "en": "English", "japan": "Japanese",
     "korean": "Korean", "th": "Thai", "el": "Greek", "te": "Telugu", "ta": "Tamil", "ka": "Georgian",
@@ -65,7 +65,7 @@ MASK_NOTE = "blacked out before labels are searched, e.g. a channel logo"
 
 
 def language_label(code: str) -> str:
-    """The list shows a language by name; a code Paddle lacks shows as itself."""
+    """The list shows a language by name; an unknown code shows as itself."""
     return LANGUAGE_NAMES.get(code, code)
 
 

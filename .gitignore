@@ -51,6 +51,8 @@ Thumbs.db
 
 .venv
 .superpowers/
+/.tmp/
+/.acl-recovery/
 
 # Fidelity harness output for a failing case, never a golden.
 tests/goldens/*.actual.ass
@@ -63,3 +65,6 @@ tests/goldens/*.actual.ass
 .claude/
 .ruff_cache/
 .build-cache/
+
+# The app's own ffmpeg/ffprobe (~220 MB): fetched per checkout, never committed.
+/bin/

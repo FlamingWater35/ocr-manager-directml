@@ -10,7 +10,7 @@ import pytest
 
 from videocr.label_scanner import LabelScanner
 from videocr.progress import ProgressTracker
-from videocr.pyav_adapter import PyAVCapture
+from videocr.ffmpeg_capture import FFmpegCapture
 
 LABEL_PHASES = ["label_p1", "label_p1_5", "label_p2", "label_p3", "label_p4"]
 
@@ -31,7 +31,7 @@ class _NoTextOCR:
 
 
 def _scanner(path):
-    with PyAVCapture(str(path)) as cap:
+    with FFmpegCapture(str(path)) as cap:
         fps = cap.get(cv2.CAP_PROP_FPS)
         num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))

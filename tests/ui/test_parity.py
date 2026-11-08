@@ -870,14 +870,14 @@ def test_a_run_creates_only_the_language_output_directory(make_window, fake_runn
 
 def test_detector_frames_and_ocr_frames_share_one_decode_and_tone_map_path():
     """HDR->SDR tone mapping is applied consistently: everything that looks at
-    what OCR reads goes through the same `videocr.pyav_adapter.Capture`, whose
-    tone-map chain is pinned by tests/test_capture_hdr.py."""
+    what OCR reads goes through the same `videocr.ffmpeg_capture.Capture`,
+    whose tone-map chain is pinned by tests/test_capture_hdr.py."""
     from core.detect import ocr_view
-    from videocr import pyav_adapter, video
+    from videocr import ffmpeg_capture, video
 
-    assert ocr_view.Capture is pyav_adapter.Capture
-    assert video.Capture is pyav_adapter.Capture
-    assert ocr_view.DECODE_TARGET_HEIGHT is pyav_adapter.DECODE_TARGET_HEIGHT
+    assert ocr_view.Capture is ffmpeg_capture.Capture
+    assert video.Capture is ffmpeg_capture.Capture
+    assert ocr_view.DECODE_TARGET_HEIGHT is ffmpeg_capture.DECODE_TARGET_HEIGHT
 
 
 def test_time_ranges_are_editable_and_reach_the_ocr_call(make_window, fake_runner):

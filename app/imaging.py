@@ -15,7 +15,7 @@ from collections import OrderedDict
 import numpy as np
 from PyQt6.QtGui import QImage
 
-# ~70 frames of 1280x720 BGR (2.8 MB each), on top of whatever PaddleOCR is
+# ~70 frames of 1280x720 BGR (2.8 MB each), on top of whatever the OCR engine is
 # holding. A crop view shows one canvas frame and about a dozen filmstrip
 # frames, so this keeps the last five or so files hot -- enough to walk back
 # and forth through a stretch of the queue without decoding again -- while
@@ -28,7 +28,7 @@ def bgr_to_qimage(image) -> QImage | None:
     """A QImage that owns a copy of a BGR (or grayscale) uint8 frame; None
     for no frame or one it cannot convert.
 
-    Takes 3-channel BGR (as OpenCV, PyAV and every frame source here produce
+    Takes 3-channel BGR (as OpenCV, ffmpeg and every frame source here produce
     it) and 1-channel grayscale, contiguous or not.
     """
     if image is None:

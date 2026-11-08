@@ -2,23 +2,22 @@
 
 `--self-test`
     Imports every module under app/, core/ and videocr/; runs `ffmpeg
-    -version` and `ffprobe -version` from PATH; imports av and calls
-    `videocr.pyav_adapter.assert_reference_backend()`. Prints one JSON
-    report (`"ok"` plus the details). Exit 0 when everything passed, else 1.
-    The OCR engine is reported but not required.
-
-`--install-engine {auto,cpu,gpu}`
-    Installs the OCR engine into the data dir (bundles only). Progress as
-    `[step] ...`, `[progress] <done> of <total> bytes`, `[notice] ...` and
-    `  | <pip output>` lines; the last line is `RESULT <json>`. Exit 0
-    installed; 1 failed; 2 not a bundle; 3 `gpu` was asked for but no GPU
-    build fits this machine, or the GPU build failed and CPU was installed;
-    130 interrupted (Ctrl+C).
+    -version` and `ffprobe -version` from PATH; calls
+    `videocr.ffmpeg_capture.assert_reference_backend()`; reports the OCR
+    device (`app.engine.engine_summary`). Prints one JSON report (`"ok"`
+    plus the details). Exit 0 when everything passed, else 1.
 
 `--ocr-smoke`
     Builds the OCR engine on the resolved device, OCRs a rendered line of
     Chinese (Latin when no CJK font is installed) and prints `RESULT
     <json>`. Exit 0 when any text was recognised, else 1.
+
+`--download-models`
+    Fetches the recognition models for the languages this build supports
+    beyond the bundled PP-OCRv6 set (about 77 MB), printing `[model] <key>`
+    lines and `RESULT <json>`. Exit 0 fetched or already present; 1 failed;
+    130 interrupted. The app downloads them on first use instead; this is
+    for preparing a machine ahead of time (CI, an offline install).
 
 Output goes to stdout (the log file under pythonw).
 """
@@ -29,7 +28,6 @@ import json
 import os
 import pkgutil
 import platform
-import shutil
 import subprocess
 import sys
 import threading
@@ -37,6 +35,7 @@ import time
 import traceback
 
 from app.bootstrap import Boot
+from core import ffmpeg as ffmpeg_tool
 from core.proc import TEXT_ENCODING, hidden_child
 from app.version import __version__
 
@@ -47,12 +46,31 @@ SMOKE_TEXT_CJK = "你好世界测试字幕"
 SMOKE_TEXT_LATIN = "OCR SMOKE 12345"
 PREFERRED_CJK_FONTS = ("Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "PingFang SC",
                        "WenQuanYi Micro Hei", "SimHei", "Hiragino Sans GB", "Noto Sans SC")
-EXIT_OK, EXIT_FAIL, EXIT_NOT_BUNDLE, EXIT_NO_GPU, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
+EXIT_OK, EXIT_FAIL, EXIT_INTERRUPTED = 0, 1, 130
 _smoke_app = None                       # the QGuiApplication --ocr-smoke renders with, when none exists
 
 
 def _emit(line: str) -> None:
-    print(line, flush=True)
+    """Print one report line, never failing on the console's encoding.
+
+    The reports carry CJK (the smoke text, and recognised lines from a real
+    run) and Windows consoles are cp1252/cp437 by default, where printing
+    them raises UnicodeEncodeError.  A CI step parsing this output cares about
+    the bytes, so write UTF-8 and replace only what the stream truly cannot
+    take.
+    """
+    stream = sys.stdout
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        buffer = getattr(stream, "buffer", None)
+        if buffer is None:
+            print(line.encode(encoding, "backslashreplace").decode(encoding), flush=True)
+            return
+        stream.flush()
+        buffer.write((line + "\n").encode("utf-8"))
+        buffer.flush()
 
 
 # --------------------------------------------------------------------------
@@ -79,53 +97,59 @@ def import_all(packages=PACKAGES) -> tuple[list[str], dict[str, str]]:
 
 
 def check_tool(tool: str) -> dict:
-    path = shutil.which(tool)
+    path, origin = ffmpeg_tool.find_tool(tool)
     if path is None:
-        return {"ok": False, "path": None, "error": f"{tool} is not on PATH"}
+        return {"ok": False, "path": None, "origin": None,
+                "error": f"{tool} is not in the bundle, the checkout or PATH"}
     try:
         done = subprocess.run([path, "-version"], capture_output=True, text=True, timeout=TOOL_TIMEOUT,
                               check=False, **TEXT_ENCODING, **hidden_child())
     except (OSError, subprocess.SubprocessError) as exc:
         return {"ok": False, "path": path, "error": str(exc)}
     first = (done.stdout or "").splitlines()[0] if done.stdout else ""
-    return {"ok": done.returncode == 0, "path": path, "version": first,
+    return {"ok": done.returncode == 0, "path": path, "origin": origin, "version": first,
             **({} if done.returncode == 0 else {"error": f"exit code {done.returncode}"})}
 
 
-def check_av() -> dict:
+def check_decoder() -> dict:
+    """The video decoder this build depends on: ffmpeg + ffprobe on PATH.
+
+    There is no second backend to fall back to any more, so a missing binary
+    is a hard failure here rather than a warning.
+    """
     try:
-        import av
+        from videocr import ffmpeg_capture
     except Exception as exc:                                # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-    report = {"ok": True, "version": getattr(av, "__version__", "")}
+    report = {
+        "ok": bool(ffmpeg_capture.FFMPEG_AVAILABLE),
+        "ffmpeg": ffmpeg_capture.FFMPEG or "",
+        "ffprobe": ffmpeg_capture.FFPROBE or "",
+        "backend": ffmpeg_capture.capture_backend_name(),
+    }
     try:
-        from videocr import pyav_adapter
-        check = getattr(pyav_adapter, "assert_reference_backend", None)
-        if check is not None:
-            check()
-            report["reference_backend"] = True
+        ffmpeg_capture.assert_reference_backend()
+        report["reference_backend"] = True
     except Exception as exc:                                # noqa: BLE001
         report.update(ok=False, reference_backend=False, error=f"{type(exc).__name__}: {exc}")
     return report
 
 
 def engine_report(boot: Boot) -> dict:
-    from core.runtime.engine import engine_dir
+    from app.engine import engine_summary
     report: dict = {"bundled": boot.bundled}
     if boot.bundled:
-        report["dir"] = str(engine_dir())
-        report["installed"] = boot.state is not None
-        if boot.state is not None:
-            report.update(variant=boot.state.variant, models_ready=boot.state.models_ready,
-                          fallback_reason=boot.state.fallback_reason)
+        report["root"] = str(boot.bundle.root)
+    report.update(engine_summary())
     return report
 
 
 def self_test(boot: Boot) -> int:
     imported, failed = import_all()
     tools = {tool: check_tool(tool) for tool in TOOLS}
-    av_report = check_av()
-    ok = not failed and not boot.bundle_error and all(t["ok"] for t in tools.values()) and av_report["ok"]
+    decoder_report = check_decoder()
+    ok = (not failed and not boot.bundle_error
+          and all(t["ok"] for t in tools.values()) and decoder_report["ok"])
     report = {
         "ok": ok,
         "version": __version__,
@@ -138,7 +162,7 @@ def self_test(boot: Boot) -> int:
         "bundle_error": boot.bundle_error,
         "imports": {"count": len(imported), "failed": failed},
         "tools": tools,
-        "av": av_report,
+        "decoder": decoder_report,
         "engine": engine_report(boot),
     }
     _emit(json.dumps(report, indent=2, ensure_ascii=False))
@@ -146,58 +170,27 @@ def self_test(boot: Boot) -> int:
 
 
 # --------------------------------------------------------------------------
-# --install-engine
+# --download-models
 # --------------------------------------------------------------------------
 
-class _Printer:
-    """InstallEvent -> lines; byte progress at most once a second."""
+def download_models(boot: Boot) -> int:
+    from core.runtime.paths import models_dir
+    from videocr import ocr_engine
 
-    def __init__(self) -> None:
-        self._last = 0.0
-
-    def __call__(self, event) -> None:
-        if event.kind == "progress":
-            now = time.monotonic()
-            if now - self._last < 1.0 and event.done_bytes < event.total_bytes:
-                return
-            self._last = now
-            _emit(f"[progress] {event.done_bytes} of {event.total_bytes} bytes")
-        elif event.kind == "step":
-            _emit(f"[step] {event.text}")
-        elif event.kind == "notice":
-            _emit(f"[notice] {event.text}")
-        else:
-            _emit(f"  | {event.text}")
-
-
-def install_engine(boot: Boot, request: str) -> int:
-    from core.runtime import resolve_request
-    from core.runtime.gpu import CPU, describe, probe_gpus, variant_label
-    from core.runtime.install import EngineInstaller, InstallContext
-
-    if boot.bundle is None:
-        _emit("--install-engine needs a portable bundle ($OCR_MANAGER_BUNDLE); in developer mode paddle "
-              "comes from your environment." + (f" ({boot.bundle_error})" if boot.bundle_error else ""))
-        return EXIT_NOT_BUNDLE
-    probe = probe_gpus(boot.bundle.os)
-    variant, choice = resolve_request(request, boot.bundle, probe)
-    _emit(f"[hardware] {describe(probe)}")
-    _emit(f"[choice] {variant_label(choice.variant)}: {choice.reason}")
-    if request == "gpu" and variant == CPU:
-        _emit(f"RESULT {json.dumps({'ok': False, 'error': 'no GPU build fits: ' + choice.reason})}")
-        return EXIT_NO_GPU
-    _emit(f"[install] {variant_label(variant)}")
-    installer = EngineInstaller(InstallContext.for_bundle(boot.bundle), emit=_Printer())
+    target = models_dir(boot.data)
     cancel = threading.Event()
     box: dict = {}
 
+    def progress(index: int, total: int, key: str) -> None:
+        _emit(f"[model] {index + 1}/{total} {key}")
+
     def work() -> None:
         try:
-            box["result"] = installer.install(variant, choice.gpu if variant != CPU else None, cancel)
+            box["fetched"] = ocr_engine.download_models(target, progress=progress, cancel=cancel)
         except BaseException as exc:                         # noqa: BLE001
-            box["error"] = "".join(traceback.format_exception(exc))
+            box["error"] = f"{type(exc).__name__}: {exc}"
 
-    thread = threading.Thread(target=work, name="engine-install")
+    thread = threading.Thread(target=work, name="model-download")
     thread.start()
     interrupted = False
     while thread.is_alive():
@@ -208,22 +201,11 @@ def install_engine(boot: Boot, request: str) -> int:
             _emit("[step] Cancelling")
             cancel.set()
     if "error" in box:
-        _emit(box["error"])
-        _emit(f"RESULT {json.dumps({'ok': False, 'error': 'installer crashed'})}")
-        return EXIT_FAIL
-    result = box["result"]
-    summary = {"ok": result.ok, "variant": result.variant, "fell_back": result.fell_back,
-               "fallback_reason": result.fallback_reason, "error": result.error, "warnings": result.warnings,
-               "engine_dir": str(result.engine_dir) if result.engine_dir else None,
-               "state": result.state.to_json() if result.state else None}
-    _emit(f"RESULT {json.dumps(summary, ensure_ascii=False)}")
-    if result.cancelled or interrupted:
-        return EXIT_INTERRUPTED
-    if not result.ok:
-        return EXIT_FAIL
-    if request == "gpu" and result.fell_back:
-        return EXIT_NO_GPU
-    return EXIT_OK
+        _emit(f"RESULT {json.dumps({'ok': False, 'error': box['error']})}")
+        return EXIT_INTERRUPTED if interrupted else EXIT_FAIL
+    fetched = box.get("fetched") or []
+    _emit(f"RESULT {json.dumps({'ok': True, 'dir': str(target), 'fetched': fetched})}")
+    return EXIT_INTERRUPTED if interrupted else EXIT_OK
 
 
 # --------------------------------------------------------------------------
@@ -283,11 +265,6 @@ def render_line(text: str | None = None):
 FONT_FILES = (
     (r"C:\Windows\Fonts\msyh.ttc", True), (r"C:\Windows\Fonts\simhei.ttf", True),
     (r"C:\Windows\Fonts\simsun.ttc", True), (r"C:\Windows\Fonts\arial.ttf", False),
-    ("/System/Library/Fonts/PingFang.ttc", True), ("/System/Library/Fonts/Hiragino Sans GB.ttc", True),
-    ("/System/Library/Fonts/Supplemental/Arial.ttf", False),
-    ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", True),
-    ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", True),
-    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", False), ("/usr/share/fonts/TTF/DejaVuSans.ttf", False),
 )
 
 
@@ -311,9 +288,6 @@ def _render_with_pillow(width: int, height: int):
 
 
 def ocr_smoke(boot: Boot) -> int:
-    if boot.bundled and boot.state is None:
-        _emit(f"RESULT {json.dumps({'ok': False, 'error': 'no OCR engine is installed (--install-engine)'})}")
-        return EXIT_FAIL
     started = time.monotonic()
     try:
         image, expected, family = render_line()

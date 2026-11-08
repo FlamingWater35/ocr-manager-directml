@@ -25,7 +25,7 @@ The pass rule
     compares against (`videocr.video.Video._run_ocr_with_engine` divides it by
     100). The reading itself is `brightness._reading`, which is what the OCR
     pass would emit for that frame: words joined as subtitles are written,
-    garbage dropped, and "PaddleOCR returned nothing" scored 0 rather than the
+    garbage dropped, and "the engine returned nothing" scored 0 rather than the
     100 sentinel `PredictedFrames` uses -- so an empty frame can never confirm
     anything.
 

@@ -1,13 +1,13 @@
 """Label/nameplate scanner for detecting positioned text overlays in video.
 
-4-phase pipeline that trusts PaddleOCR:
+4-phase pipeline that trusts the OCR engine:
   Phase 1: Detection Scan — sparse sampling at 720p to find frames with text
   Phase 2: Position Grouping — cluster detection boxes spatially across frames
   Phase 3: Crop, Clean, Recognize — dual OCR at regular intervals, detect content changes
   Phase 4: Timing Refinement — detection scan to bracket start/end, then find the exact frame inside
 
 Key principles:
-  - Trust Paddle — no pixel heuristics, no color analysis, no scene cut detection
+  - Trust the OCR engine — no pixel heuristics, no color analysis, no scene cut detection
   - Detection at 720p — catches smaller nameplates
   - No brightness filter at detection stage — only at recognition (Phase 3 dual OCR)
   - Dual OCR — brightness-filtered + raw image, pick higher confidence
@@ -24,7 +24,7 @@ import numpy as np
 from thefuzz import fuzz
 
 from . import utils
-from .pyav_adapter import DISPLAY_TIME_TOLERANCE, Capture
+from .ffmpeg_capture import DISPLAY_TIME_TOLERANCE, Capture
 
 
 @dataclass(frozen=True)
@@ -250,7 +250,7 @@ class LabelScanner:
     def _deduplicate_text(text):
         """Fix doubled OCR text like '神界神界' → '神界'.
 
-        PaddleOCR sometimes reads a region twice, producing doubled text
+        The OCR engine sometimes reads a region twice, producing doubled text
         as a single result.  Only triggers for text of 4+ characters where
         the first half exactly equals the second half.
         """
@@ -547,7 +547,7 @@ class LabelScanner:
                     matched_ocr_indices.add(i)
 
             if matching_lines:
-                # Deduplicate: PaddleOCR sometimes detects the same text
+                # Deduplicate: the engine sometimes detects the same text
                 # twice at overlapping positions.  Keep the higher-confidence
                 # result when two lines have similar text.
                 unique_lines = []
@@ -599,7 +599,7 @@ class LabelScanner:
         """Run OCR on a cluster crop and return all detected lines.
 
         Args:
-            ocr: PaddleOCR engine
+            ocr: OCR engine
             crop: Image crop containing multiple text lines
             crop_offset: (x, y) offset of crop in original frame
             detection_boxes: Optional list of detection boxes
@@ -1096,7 +1096,7 @@ class LabelScanner:
     def _merge_overlapping_groups(self, groups):
         """Merge Phase 2 groups that overlap in both time and space.
 
-        PaddleOCR inconsistently detects long labels — one frame sees the full
+        The engine inconsistently detects long labels — one frame sees the full
         box, another sees just the top fragment, another just the bottom.
         Phase 2 creates separate groups for each fragment because their
         centroids are far apart. This method merges groups whose encompassing
@@ -1201,7 +1201,7 @@ class LabelScanner:
         """Run OCR on both brightness-filtered and raw crop, return best.
 
         Args:
-            ocr: PaddleOCR engine.
+            ocr: OCR engine.
             raw_crop: Raw crop from full-res frame.
             detection_boxes: Optional detection boxes for merging.
 
@@ -1235,7 +1235,7 @@ class LabelScanner:
         """Cluster Phase 2 groups that are spatially close for batch OCR.
 
         Groups whose encompassing boxes are near each other (in either X or Y)
-        get batched into one crop so PaddleOCR processes them in a single call.
+        get batched into one crop so the engine processes them in a single call.
         Uses edge-to-edge gap vs average dimension, same logic as in-frame
         clustering but applied in both directions.
 
@@ -1351,7 +1351,7 @@ class LabelScanner:
         """OCR at regular intervals, detect content changes to split back-to-back labels.
 
         Clusters spatially close groups and sends one combined crop per cluster
-        to PaddleOCR, then maps per-line results back to individual groups.
+        to the engine, then maps per-line results back to individual groups.
 
         For each cluster of groups:
         1. Crop one image covering all groups in the cluster
@@ -2167,7 +2167,7 @@ class LabelScanner:
     def _merge_split_labels(self, labels):
         """Merge labels that are fragments of a single visual label split by OCR.
 
-        PaddleOCR sometimes splits a text overlay into multiple detection boxes.
+        The engine sometimes splits a text overlay into multiple detection boxes.
         This uses orientation-aware rules (bbox shape) and edge-to-edge gap
         measurements (not centroid distance) to decide what to merge.
 
@@ -2443,7 +2443,7 @@ class LabelScanner:
 
         Args:
             det_engine: TextDetection engine for detection-only calls.
-            ocr: Full PaddleOCR engine for recognition.
+            ocr: Full OCR engine for recognition.
             time_start: Start time string (e.g., "2:30") or empty.
             time_end: End time string or empty.
             stream_start_time: The container's start_time, subtracted so ASS times count from the player's zero.

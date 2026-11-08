@@ -7,9 +7,11 @@ while the review queue stays.
   a running dot + the phase ("dialogue" / "labels"), "done" (ok), "failed"
   (bad, the error on hover) or "cancelled" (dim); a progress bar, blue while
   running and full when done; "{n} lines".
-- Footer: "GPU {p}%" from `nvidia-smi`, run through an async QProcess every
-  2 s only while this view is visible and a run is active, hidden when the
-  query fails; and one hint about the files still waiting (`raise_offer`):
+- Footer: "GPU {p}%" from Windows' GPU performance counters (the `GPU Engine`
+  / `Utilization Percentage` counter set, read with `typeperf`), run through
+  an async QProcess every 2 s only while this view is visible and a run is
+  active, hidden when the query fails; and one hint about the files still
+  waiting (`raise_offer`):
     - "{k} workers idle" -- text only, since the run already has every
       worker its parallel allows and there is nothing to raise to -- when it
       leaves worker slots unused while files wait (`idle_workers`, B13);
@@ -45,10 +47,14 @@ from app.theme import tokens
 from app.views.deferred import Deferred
 from app.widgets.base import Button, Dot, ElidedLabel, repolish
 
-GPU_PROGRAM = "nvidia-smi"
-GPU_ARGUMENTS = ["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"]
+# Windows' own GPU performance counters, not `nvidia-smi`: DirectML runs on
+# any DX12 adapter, so the meter has to read NVIDIA, AMD and Intel alike.
+# `-sc 1` samples once and exits; the counter instance names are per
+# process/engine, hence the aggregate (sum of every engine, capped at 100).
+GPU_PROGRAM = "typeperf"
+GPU_ARGUMENTS = [r"\GPU Engine(*)\Utilization Percentage", "-sc", "1"]
 GPU_POLL_MS = 2000
-GPU_SHUTDOWN_WAIT_MS = 500
+GPU_SHUTDOWN_WAIT_MS = 1500
 
 HEADERS = ("File", "Phase", "Progress", "Result")
 COLUMN_STRETCH = (17, 9, 12, 7)             # .rrow grid-template-columns: 1.7fr .9fr 1.2fr .7fr (a ratio, not px)
@@ -112,21 +118,33 @@ def raise_offer(snapshot, parallel: int) -> tuple[str, int | None] | None:
 
 
 def parse_gpu_utilisation(output: str) -> int | None:
-    """The busiest GPU's utilisation (0-100) from `nvidia-smi
-    --query-gpu=utilization.gpu --format=csv,noheader,nounits` (one line per
-    GPU); None when there is no number to read."""
+    """Total GPU utilisation (0-100) from `typeperf`'s CSV.
+
+    The first line is the header naming one counter instance per
+    process/engine (`\\HOST\\GPU Engine(pid_1234_luid_0x..._engtype_3D)\\
+    Utilization Percentage`), each later line is one sample whose columns are
+    quoted numbers. The engines of a single GPU are reported separately and
+    their percentages overlap, so summing them overcounts -- the busiest
+    single engine is the number that tracks "how busy is the GPU".
+
+    None when there is no number to read (no GPU counters on this machine,
+    a `typeperf` error, an empty sample)."""
+    rows = [line for line in output.splitlines() if line.strip()]
+    if len(rows) < 2:
+        return None
     values = []
-    for line in output.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            values.append(round(float(line)))
-        except ValueError:
-            return None
+    for line in rows[1:]:
+        for field in line.split(",")[1:]:          # [0] is the timestamp
+            field = field.strip().strip('"')
+            if not field:
+                continue
+            try:
+                values.append(float(field))
+            except ValueError:
+                continue
     if not values:
         return None
-    return max(0, min(100, max(values)))
+    return max(0, min(100, round(max(values))))
 
 
 # --------------------------------------------------------------------------

@@ -1,11 +1,13 @@
 """Shared pytest fixtures: synthetic media and the reference-media manifest."""
 import builtins
 import json
+import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from core import ffmpeg as ffmpeg_tool
 from videocr import engine_registry
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -38,14 +40,39 @@ def _episode_cache_root(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("OCR_MANAGER_CACHE_DIR", str(tmp_path_factory.mktemp("episode-cache")))
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _ffmpeg_on_path():
+    """Put the app's own ffmpeg and ffprobe first on PATH.
+
+    ffmpeg ships with the app (core.ffmpeg), so the suite must not depend on
+    a system install -- a machine without one is the normal case for the
+    users this is built for.  Tests that synthesize clips call the binaries
+    by name, and so do the tests that shadow one with a fake; both need the
+    resolved folder on PATH.  It is prepended, not replaced, so a test that
+    prepends its own fake still wins, and a test that needs to look like a
+    machine with no ffmpeg at all can clear PATH itself.
+
+    Session scope, not function: the clip fixtures are module- or
+    session-scoped, so they encode before a function-scoped fixture could
+    have run.
+    """
+    folder = ffmpeg_tool.ffmpeg_dir()
+    if folder is None:
+        pytest.skip(f"no ffmpeg to test with: {ffmpeg_tool.missing_message()}")
+    patch = pytest.MonkeyPatch()
+    patch.setenv("PATH", f"{folder}{os.pathsep}{os.environ.get('PATH', '')}")
+    yield
+    patch.undo()
+
+
 def _run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True, capture_output=True)
 
 
 def _ffprobe_duration(video_path: Path) -> float:
     result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "json", str(video_path)],
+        [*ffmpeg_tool.ffprobe_argv("-v", "error", "-show_entries", "format=duration",
+                                   "-of", "json", str(video_path))],
         capture_output=True, text=True, check=True,
     )
     return float(json.loads(result.stdout)["format"]["duration"])
@@ -56,7 +83,7 @@ def synthetic_video(tmp_path_factory) -> Path:
     """10 frames, 320x240, 25 fps, yuv420p H.264 in MP4."""
     out = tmp_path_factory.mktemp("media") / "synthetic.mp4"
     _run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25:duration=0.4",
         "-pix_fmt", "yuv420p", "-c:v", "libx264", "-g", "5", str(out),
     ])
@@ -75,7 +102,7 @@ def offset_video(tmp_path_factory) -> Path:
     """
     out = tmp_path_factory.mktemp("media") / "offset.mp4"
     _run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25:duration=0.4",
         "-output_ts_offset", "1.5",
         "-pix_fmt", "yuv420p", "-c:v", "libx264", "-g", "5", str(out),
@@ -83,7 +110,7 @@ def offset_video(tmp_path_factory) -> Path:
     # Verify the mechanism actually produced a non-zero container
     # start_time on this ffmpeg build before any test relies on it.
     probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=start_time",
+        [ffmpeg_tool.ffprobe_path() or "ffprobe", "-v", "error", "-show_entries", "format=start_time",
          "-of", "json", str(out)],
         capture_output=True, text=True, check=True,
     )
@@ -102,7 +129,7 @@ def synthetic_subtitle_video(tmp_path_factory) -> Path:
     for frames 25-49 only, so gating and timing can be asserted exactly."""
     out = tmp_path_factory.mktemp("media") / "subs.mp4"
     _run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "color=c=#202020:size=640x360:rate=25:duration=3",
         "-vf", "drawbox=x=160:y=300:w=320:h=30:color=white@1.0:t=fill:"
                "enable='between(n,25,49)'",
@@ -119,7 +146,7 @@ def delayed_video_subtitle_clip(tmp_path_factory) -> Path:
     09, 12 and 15. No B-frames, so no muxer shift moves the audio too."""
     out = tmp_path_factory.mktemp("media") / "delayed.mkv"
     _run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-itsoffset", "0.08",
         "-f", "lavfi", "-i", "color=c=#202020:size=640x360:rate=25:duration=3,"
                              "drawbox=x=160:y=300:w=320:h=30:color=white@1.0:t=fill:"
@@ -130,7 +157,7 @@ def delayed_video_subtitle_clip(tmp_path_factory) -> Path:
         "-c:a", "pcm_s16le", str(out),
     ])
     probe = json.loads(subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries",
+        [ffmpeg_tool.ffprobe_path() or "ffprobe", "-v", "error", "-show_entries",
          "format=start_time:stream=codec_type,start_time", "-of", "json", str(out)],
         capture_output=True, text=True, check=True,
     ).stdout)
@@ -148,7 +175,7 @@ def synthetic_audio_video(tmp_path_factory) -> Path:
         "between(t,1,3)", "between(t,5,6)", "between(t,8,9)",
     ])
     _run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25:duration=10",
         "-f", "lavfi", "-i", f"sine=frequency=1000:duration=10",
         "-filter_complex", f"[1:a]volume='if({bursts},1,0)':eval=frame[a]",
@@ -166,14 +193,14 @@ def video_only_clip(tmp_path_factory) -> Path:
     (which keeps it from looking like a static watermark)."""
     out = tmp_path_factory.mktemp("media") / "video_only.mp4"
     _run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "color=c=#202020:size=640x360:rate=25:duration=20",
         "-vf", "drawbox=x=120:y=300:w=400:h=30:color=white@1.0:t=fill:"
                "enable='lt(mod(t,2),1)'",
         "-pix_fmt", "yuv420p", "-c:v", "libx264", "-g", "25", str(out),
     ])
     probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+        [ffmpeg_tool.ffprobe_path() or "ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
          "-of", "csv=p=0", str(out)],
         capture_output=True, text=True, check=True,
     )
@@ -191,7 +218,7 @@ def undecodable_audio_clip(tmp_path_factory) -> Path:
     media = tmp_path_factory.mktemp("media")
     pcm = media / "pcm.mkv"
     _run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25:duration=4",
         "-f", "lavfi", "-i", "sine=frequency=1000:duration=4",
         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-c:a", "pcm_s16le", str(pcm),
@@ -201,7 +228,7 @@ def undecodable_audio_clip(tmp_path_factory) -> Path:
     out = media / "undecodable_audio.mkv"
     out.write_bytes(data.replace(b"A_PCM/INT/LIT", b"A_QQQ/QQQ/QQQ"))
     probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+        [ffmpeg_tool.ffprobe_path() or "ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
          "-of", "csv=p=0", str(out)],
         capture_output=True, text=True, check=True,
     )

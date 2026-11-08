@@ -5,12 +5,12 @@ Model construction (`videocr.utils.create_ocr_engine` /
 weight loading -- so engines are kept and reused instead of being rebuilt for
 every file, time range and label pass.
 
-An engine is NOT safe to use from two threads at once. PaddleX's inference
-path shares its input/output handles between calls, and OCRManager runs its
+An engine is NOT safe to use from two threads at once. The inference session
+shares its input/output handles between calls, and OCRManager runs its
 workers as QThreads in one process (default 4). Measured on the real models
 with several threads calling `predict()` on one instance: TextDetection
 changed 101 and 126 of 384 outputs versus serial (separate instances: 0 of
-192, twice), and PaddleOCR misread 17 texts ("LINE 020 W" -> "NE", "20 V",
+192, twice), and the engine misread 17 texts ("LINE 020 W" -> "NE", "20 V",
 "V") while one thread died with `AssertionError: 3 != 2 for key rec_text`.
 
 So an engine is only ever reached through a lease:
@@ -63,7 +63,7 @@ def _build_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu):
     """Builder the pool calls to construct a full OCR engine.
 
     A thin wrapper around `videocr.utils.create_ocr_engine` so tests can
-    monkeypatch construction without touching PaddleOCR itself.
+    monkeypatch construction without touching the engine itself.
     """
     return utils.create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu)
 
@@ -72,7 +72,7 @@ def _build_detection_engine(det_model_dir, use_gpu):
     """Builder the pool calls to construct a detection-only engine.
 
     A thin wrapper around `videocr.utils.create_detection_engine` so tests
-    can monkeypatch construction without touching PaddleOCR itself.
+    can monkeypatch construction without touching the engine itself.
     """
     return utils.create_detection_engine(det_model_dir, use_gpu)
 

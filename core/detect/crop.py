@@ -27,16 +27,25 @@ that window), both pinned by tests in `tests/test_detect_crop.py`:
    padding was 0, and the raw (unpadded) box measurably sat a few pixels
    short of what users accepted (see task-2-brief.md's background section).
 
-Probe frames are fetched two ways, chosen per source by resolution (see
-_prefers_persistent_fetch()): one-shot `ffmpeg -ss` processes, or a pool of
-persistent PyAV containers (_PersistentFrameFetcher) that seek accurately and
-decode forward. Both return the SAME frame for the same requested time, pixel
-for pixel; only the cost differs. Neither snaps probes to keyframes -- see
-_PersistentFrameFetcher's docstring for the measurement that ruled that out.
+Probe frames are fetched one way: one-shot `ffmpeg -ss` processes, bounded to
+GRAB_POOL_SIZE concurrent runs. They do not snap probes to keyframes: a
+keyframe-only fetch is ~15x cheaper per probe at 4K, but the reference encodes
+place keyframes at scene cuts, where burned-in subtitles are absent or
+mid-fade (measured on every speech-guided probe: a subtitle was detected at
+the requested times for 50.5% / 47.5% / 74% of probes, but in only 3% / 3% /
+22% of frames sitting exactly on a keyframe). Snapping removes the very
+evidence the audio guidance selects for.
+
+An earlier version also ran a pool of persistent PyAV containers above a
+resolution crossover. It is gone: on the same 15 probes of a 4K source,
+one-shot grabs took 1.25s against 3.31s for persistent containers (the five
+container opens alone cost 0.36s), and the PyAV path decoded through a second,
+differently-built FFmpeg than the CLI the rest of this module shells out to --
+a pixel-drift class of bug with no upside left.
 
 No Qt imports here (core/detect/ is Qt-free by project convention) -- this
-module only touches numpy, PyAV, subprocess (ffmpeg/ffprobe) and the
-detection engine object it's handed.
+module only touches numpy, subprocess (ffmpeg/ffprobe) and the detection
+engine object it's handed.
 """
 from __future__ import annotations
 
@@ -49,16 +58,17 @@ from dataclasses import dataclass, field
 from dataclasses import fields as _dataclass_fields
 from statistics import median
 
-import av
 import numpy as np
 
+from core import ffmpeg as ffmpeg_tool
 from core.detect import vad
 from core.detect.flags import compose_flag as _compose_flag
 from core.detect.flags import is_cancelled as _is_cancelled
 from core.detect.flags import only_informational
 from core.proc import TEXT_ENCODING, hidden_child
 from core.project.model import FolderSettings as _FolderSettings
-from videocr.pyav_adapter import _TRC_ARIB_STD_B67, _TRC_SMPTE2084, PyAVCapture, _pyav_has_zscale
+from videocr.ffmpeg_capture import _TRC_ARIB_STD_B67, _TRC_SMPTE2084
+from videocr.ffmpeg_capture import tone_map_filters as _tone_map_filters
 
 logger = logging.getLogger(__name__)
 
@@ -215,31 +225,6 @@ BASELINE_CLUSTER_MIN_DOMINANT_SIZE = 3
 # the kept union with little to no gap; real noise measured on the
 # reference corpus sat ~2.4 line heights away, comfortably outside this.
 ADJACENT_SINGLETON_MAX_GAP_LINE_HEIGHTS = 1.0
-# Probe fetching (Task 2b). Sources with MORE than this many pixels fetch
-# probes through persistent PyAV containers; at or below it, through one-shot
-# ffmpeg processes. Measured crossover, see _prefers_persistent_fetch().
-PERSISTENT_FETCH_MIN_PIXELS = 1920 * 1080
-PERSISTENT_POOL_SIZE = PROBE_BATCH_SIZE   # one container per probe of a batch
-# Decoders for which skipping non-reference frames (AVDISCARD_NONREF) on the
-# way to an accurate-seek target was MEASURED to return the same frame as a
-# full decode: pixel-identical to one-shot grabs for h264 and hevc on the six
-# reference sources (x265 HEVC, 8- and 10-bit, 4K and 1080p) and on synthetic
-# x264 (B-frames, 25 and 24000/1001 fps) and x265 (B-pyramid, temporal layers,
-# 10-bit) clips -- see
-# test_persistent_fetcher_frames_match_one_shot_and_recorded_times_refetch_them.
-# That is evidence for these encodes, not a proof for every h264/hevc stream:
-# - HEVC `_N` NAL unit types only promise "not referenced by pictures of the
-#   same temporal sub-layer"; a picture in a HIGHER sub-layer may still
-#   reference one, and FFmpeg would skip it anyway. x265 marks only truly
-#   unreferenced pictures `_N`, so the temporal-layers clip cannot exercise
-#   that case.
-# - h264 without a VUI bitstream_restriction makes FFmpeg infer the reorder
-#   depth from POC gaps as it decodes; skipped frames change those gaps, so
-#   output order near the target could differ from a full decode.
-# libdav1d (AV1) is the measured counter-example -- with skipping on it
-# returned a later frame for 14 of 17 requested times -- so any codec not
-# listed here decodes every frame.
-NONREF_SKIP_EXACT_CODECS = frozenset({"h264", "hevc"})
 UNIFORM_START_FRAC = 0.40
 UNIFORM_END_FRAC = 0.60
 UNIFORM_STEP_SEC = 0.5
@@ -447,7 +432,7 @@ def _probe_source(video_path: str) -> tuple[int, int, str | None]:
     color_transfer is ffprobe's name for it ("smpte2084", "bt709", ...) or
     None when the stream does not signal one."""
     cmd = [
-        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        *ffmpeg_tool.ffprobe_argv("-v", "error", "-select_streams", "v:0"),
         "-show_entries", "stream=width,height,color_transfer", "-of", "json", video_path,
     ]
     result = subprocess.run(cmd, capture_output=True, check=True, text=True, **TEXT_ENCODING,
@@ -466,16 +451,17 @@ def _probe_dimensions(video_path: str) -> tuple[int, int]:
 
 
 # Probe frames are tone-mapped exactly when, and exactly as, the OCR pass
-# tone-maps: PQ and HLG sources, through PyAVCapture._add_tonemap_chain()
-# (videocr/pyav_adapter.py), ahead of the crop. Spec section 11: detection
-# sampling uses the OCR pass's chain.
+# tone-maps: PQ and HLG sources, through videocr.ffmpeg_capture's
+# tone_map_filters() -- the one definition the OCR pass's decoder builds its
+# chain from too -- ahead of the crop. Spec section 11: detection sampling
+# uses the OCR pass's chain.
 #
 # Measured before this (I2; synthetic 30 s clips, burned-in white subtitles
 # over colour, light-gradient and dark scenes, converted SDR -> PQ at 100, 203
 # and 1000 nits, PQ tag-only, HLG; real TextDetection; final-fix-report.md):
 # - pixels: un-tone-mapped probes were 74-114 levels off the tone-mapped ones
 #   on over 99% of pixels (now 0.01-0.03 levels off a graph that scales
-#   before bgr24, 0.02-0.07 off PyAVCapture + cv2 resize);
+#   before bgr24, 0.02-0.07 off the decoder + cv2 resize);
 # - detect_crop() boxes moved 1-7 px on all 6 HDR clips. On the 203-nit PQ
 #   clip the box bottom sat 3 px short at 1080p and 7 px short at 2160p (the
 #   padding there is 3.2 / 6.5 px), from 9 and 8 contributing frames instead
@@ -487,26 +473,16 @@ def _probe_dimensions(video_path: str) -> tuple[int, int]:
 _TONE_MAPPED_TRANSFERS = {"smpte2084": _TRC_SMPTE2084, "arib-std-b67": _TRC_ARIB_STD_B67}
 
 
-def _tone_map_filters(transfer: str | None) -> list[str]:
-    """ffmpeg CLI filters for the OCR pass's tone map of a `transfer` source,
-    in order; [] when the OCR pass does not tone-map it. Mirrors
-    PyAVCapture._add_tonemap_chain() filter for filter -- including its
-    choice of chain by what PyAV's bundled FFmpeg supports, not by what the
-    system ffmpeg does -- so one-shot grabs and the persistent path (which
-    calls that method itself) produce the same pixels."""
-    if transfer not in _TONE_MAPPED_TRANSFERS:
-        return []
-    if _pyav_has_zscale():
-        linear = "zscale=t=linear:npl=100" if transfer == "smpte2084" else "zscale=t=linear"
-        return [linear, "format=gbrpf32le", "tonemap=hable", "zscale=t=bt709"]
-    return ["format=gbrpf32le", "tonemap=hable"]
-
-
 def _probe_filters(crop_w: int, crop_h: int, crop_x: int, crop_y: int, out_w: int, out_h: int,
                    transfer: str | None) -> str:
     """The -vf chain of a one-shot grab. SDR: crop, scale (bgr24 at the
     output). Tone-mapped: tone map, crop, bgr24, scale -- the OCR pass's
-    order (tone map ahead of the crop, scaling on bgr24)."""
+    order (tone map ahead of the crop, scaling on bgr24).
+
+    The tone map itself is videocr.ffmpeg_capture.tone_map_filters(), the one
+    definition the OCR pass's decoder also uses, so a probe frame and the
+    frame the OCR pass sees at the same time are tone-mapped identically.
+    """
     tone_map = _tone_map_filters(transfer)
     if not tone_map:
         return f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale={out_w}:{out_h}"
@@ -543,16 +519,15 @@ def _crop_geometry(orig_w: int, orig_h: int, band_frac: float,
 
 
 def _seek_seconds(t: float) -> float:
-    """The container-relative time an accurate seek to `t` actually targets.
+    """The container-relative time a seek to `t` actually targets.
 
-    Millisecond precision, because that is what the one-shot path hands
-    `ffmpeg -ss`. The persistent path (see _PersistentDecoder.grab()) targets
-    exactly the same value, so for any requested time both paths decode the
-    same frame -- the first one at or after this time -- and a probe's frame
-    cannot depend on which fetch strategy happened to run. This rounding is
-    also why callers record the REQUESTED time, not the decoded frame's PTS:
-    the requested time maps back to the same frame by construction, a PTS
-    that is not a whole millisecond may not (see CropResult.sample_pts).
+    Millisecond precision, because that is what `ffmpeg -ss` is handed: for
+    any requested time the grab decodes the first frame at or after this
+    value, so a probe's frame depends only on the requested time. This
+    rounding is also why callers record the REQUESTED time, not the decoded
+    frame's PTS: the requested time maps back to the same frame by
+    construction, a PTS that is not a whole millisecond may not (see
+    CropResult.sample_pts).
     """
     return float(f"{max(0.0, t):.3f}")
 
@@ -571,7 +546,7 @@ def _grab_one(video_path: str, t: float, crop_w: int, crop_h: int, crop_x: int,
     length check, not an exception.
     """
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        *ffmpeg_tool.ffmpeg_argv("-hide_banner", "-loglevel", "error"),
         "-ss", f"{_seek_seconds(t):.3f}", "-i", video_path,
         "-frames:v", "1",
         "-vf", _probe_filters(crop_w, crop_h, crop_x, crop_y, out_w, out_h, transfer),
@@ -641,276 +616,17 @@ def _grab_frames_with_times(video_path: str, times: list[float], band_frac: floa
     return pairs, (orig_w, orig_h) + geometry
 
 
-# Tolerance when comparing a decoded frame's timestamp against the seek
-# target: absorbs float rounding in pts * time_base, far below one frame.
-_PTS_EPSILON_SEC = 1e-6
-
-
-class _PersistentDecoder:
-    """One open PyAV container plus the crop/scale/bgr24 filter graphs built
-    for it. Used by exactly one worker thread at a time (see
-    _PersistentFrameFetcher.fetch()); PyAV releases the GIL while demuxing
-    and decoding, so several of these decode genuinely in parallel.
-    """
-
-    def __init__(self, video_path: str):
-        self._container = av.open(video_path)
-        try:
-            if not self._container.streams.video:
-                raise ValueError(f"no video stream found in {video_path}")
-            self._stream = self._container.streams.video[0]
-            self._time_base = self._stream.time_base
-            start = self._container.start_time
-            # Probe times, like `ffmpeg -ss`, are relative to the container's
-            # start; stream timestamps are not.
-            self._start_sec = start / av.time_base if start is not None else 0.0
-            self._skip_nonref = self._stream.codec_context.name in NONREF_SKIP_EXACT_CODECS
-            self._graphs: dict[tuple, av.filter.Graph] = {}
-        except BaseException:
-            self._container.close()
-            raise
-
-    def _graph_for(self, geometry: tuple) -> av.filter.Graph:
-        """crop -> scale -> bgr24, the same filters as a one-shot grab
-        (_probe_filters()). A PQ or HLG stream -- decided from the stream's
-        own transfer characteristic, as PyAVCapture._detect_tonemap() does
-        for the OCR pass -- gets the OCR pass's tone map first, through
-        PyAVCapture._add_tonemap_chain() itself, then crop -> bgr24 -> scale.
-        See _TONE_MAPPED_TRANSFERS for the measurement behind it."""
-        graph = self._graphs.get(geometry)
-        if graph is None:
-            _orig_w, _orig_h, crop_w, crop_h, crop_x, crop_y, out_w, out_h = geometry
-            graph = av.filter.Graph()
-            buffer = graph.add_buffer(template=self._stream)
-            trc = int(self._stream.codec_context.color_trc)
-            if trc in _TONE_MAPPED_TRANSFERS.values():
-                head = [PyAVCapture._add_tonemap_chain(graph, buffer, trc)]
-                tail = [graph.add("crop", f"{crop_w}:{crop_h}:{crop_x}:{crop_y}"),
-                        graph.add("format", "bgr24"),
-                        graph.add("scale", f"{out_w}:{out_h}")]
-            else:
-                head = [buffer]
-                tail = [graph.add("crop", f"{crop_w}:{crop_h}:{crop_x}:{crop_y}"),
-                        graph.add("scale", f"{out_w}:{out_h}"),
-                        graph.add("format", "bgr24")]
-            chain = head + tail + [graph.add("buffersink")]
-            for upstream, downstream in zip(chain, chain[1:]):
-                upstream.link_to(downstream)
-            graph.configure()
-            self._graphs[geometry] = graph
-        return graph
-
-    def grab(self, t: float, geometry: tuple) -> np.ndarray:
-        """Accurate seek: the first frame at or after _seek_seconds(t) --
-        the same frame `ffmpeg -ss` returns -- cropped and scaled the same
-        way _grab_one() does. Raises on any failure; the caller drops and
-        logs.
-        """
-        target = _seek_seconds(t) + self._start_sec
-        time_base = self._time_base
-        codec_context = self._stream.codec_context
-        self._container.seek(int(target / time_base), stream=self._stream, backward=True)
-        frame = None
-        skipping = self._skip_nonref
-        try:
-            if skipping:
-                # Frames no other frame references can be skipped on the way
-                # to the target -- but only BEFORE it: skipping stops at the
-                # first packet whose pts reaches the target, and every packet
-                # holding a frame at or after the target reaches it too, so
-                # the target and everything after it are always decoded.
-                codec_context.skip_frame = "NONREF"
-            for packet in self._container.demux(self._stream):
-                if skipping and (packet.pts is None or packet.pts * time_base >= target - _PTS_EPSILON_SEC):
-                    codec_context.skip_frame = "DEFAULT"
-                    skipping = False
-                for decoded in codec_context.decode(packet):
-                    if decoded.pts is not None and decoded.pts * time_base >= target - _PTS_EPSILON_SEC:
-                        frame = decoded
-                        break
-                if frame is not None:
-                    break
-        finally:
-            if self._skip_nonref:
-                codec_context.skip_frame = "DEFAULT"
-        if frame is None:
-            raise EOFError(f"no frame at or after {t:.3f}s")
-
-        graph = self._graph_for(geometry)
-        graph.push(frame)
-        image = graph.pull().to_ndarray()
-        _orig_w, _orig_h, _cw, _ch, _cx, _cy, out_w, out_h = geometry
-        if image.shape != (out_h, out_w, 3):
-            raise ValueError(f"filtered frame has shape {image.shape}, expected {(out_h, out_w, 3)}")
-        return image
-
-    def close(self) -> None:
-        self._graphs.clear()
-        self._container.close()
-
-
-class _PersistentFrameFetcher:
-    """Probe fetching through a pool of persistent PyAV containers, one per
-    probe in a batch, each seeking accurately and decoding forward.
-
-    Why accurate seeks, and not the keyframe snapping the Task 2b brief asked
-    for: a keyframe-only fetch is ~15x cheaper per probe at 4K, but the
-    reference encodes place keyframes at scene cuts, where burned-in
-    subtitles are absent or mid-fade. Measured with the detection engine on
-    every speech-guided probe, a subtitle was detected at the requested
-    times for 50.5% (XWZ 168) / 47.5% (XWZ 169) / 74% (slay) of probes, but
-    in only 3% / 3% / 22% of frames sitting exactly on a keyframe; snapping
-    each probe to the nearest keyframe inside the speech segment containing
-    it cut those hit rates to 40% / 29% / 50%, and an end-to-end run
-    halved the contributing hits. Snapping to keyframes removes the very
-    evidence the audio guidance selects for. See task-2b-report.md.
-
-    What the pool buys instead is the per-probe process and container
-    start-up that one-shot grabs pay, plus parallel decoding across
-    containers; decode-forward skips non-reference frames where that is
-    exact (NONREF_SKIP_EXACT_CODECS). Frames are pixel-identical to
-    _grab_one() at the same requested time.
-
-    Contract, same as _grab_frames_with_times(): (requested time, image)
-    pairs in request order, failures dropped and logged, never raised. The
-    requested time is what callers record -- it re-fetches exactly this frame
-    through either fetch path (see CropResult.sample_pts).
-
-    If EVERY probe of a non-empty batch fails -- PyAV opened the file but
-    cannot decode it, e.g. "cannot decode unknown codec" -- the pool is
-    released and that batch and every later one for this file go through
-    one-shot ffmpeg grabs instead, with a warning. Without that, every probe
-    would be dropped and the file misreported as having no text
-    (speech-probes-exhausted, top-positioned?).
-    """
-
-    def __init__(self, video_path: str, known_dims: tuple[int, int],
-                 pool_size: int = PERSISTENT_POOL_SIZE):
-        self._video_path = video_path
-        self._dims = known_dims
-        self._decoders: list[_PersistentDecoder] = []
-        self._executor: ThreadPoolExecutor | None = None
-        self._one_shot_fallback = False
-        try:
-            for _ in range(max(1, pool_size)):
-                self._decoders.append(_PersistentDecoder(video_path))
-        except BaseException:
-            self.close()
-            raise
-        self._executor = ThreadPoolExecutor(max_workers=len(self._decoders),
-                                            thread_name_prefix="crop-probe-fetch")
-
-    def fetch(self, times: list[float], band_frac: float,
-              target_height: int) -> tuple[list[tuple[float, np.ndarray]], tuple]:
-        """(pairs, geometry) exactly as _grab_frames_with_times() returns them."""
-        if self._one_shot_fallback:
-            return _grab_frames_with_times(self._video_path, times, band_frac, target_height,
-                                           known_dims=self._dims)
-        orig_w, orig_h = self._dims
-        geometry = (orig_w, orig_h) + _crop_geometry(orig_w, orig_h, band_frac, target_height)
-        if not times:
-            return [], geometry
-
-        results: list[np.ndarray | None] = [None] * len(times)
-        n_decoders = len(self._decoders)
-
-        def work(k: int) -> None:
-            # Decoder k owns every k-th request: no decoder is ever touched
-            # by two threads at once.
-            decoder = self._decoders[k]
-            for i in range(k, len(times), n_decoders):
-                results[i] = self._grab(decoder, times[i], geometry)
-
-        list(self._executor.map(work, range(min(n_decoders, len(times)))))
-        pairs = [(t, image) for t, image in zip(times, results) if image is not None]
-        if not pairs:
-            logger.warning(
-                "%s: persistent decoders returned no frame for a batch of %d probes; "
-                "using one-shot ffmpeg grabs for the rest of this file",
-                self._video_path, len(times),
-            )
-            self._one_shot_fallback = True
-            self._release()
-            return _grab_frames_with_times(self._video_path, times, band_frac, target_height,
-                                           known_dims=self._dims)
-        return pairs, geometry
-
-    def _grab(self, decoder: _PersistentDecoder, t: float,
-              geometry: tuple) -> np.ndarray | None:
-        try:
-            return decoder.grab(t, geometry)
-        except (av.error.FFmpegError, OSError, ValueError, EOFError) as exc:
-            logger.warning(
-                "grab_frames: failed to grab t=%.3f from %s (%s: %s)",
-                t, self._video_path, type(exc).__name__, exc,
-            )
-            return None
-
-    def _release(self) -> None:
-        if self._executor is not None:
-            self._executor.shutdown(wait=True)
-            self._executor = None
-        decoders, self._decoders = self._decoders, []
-        for decoder in decoders:
-            decoder.close()
-
-    def close(self) -> None:
-        self._release()
-
-
-def _prefers_persistent_fetch(frame_size: tuple[int, int]) -> bool:
-    """Fetch-strategy policy: persistent containers only where they
-    measurably beat one-shot grabs.
-
-    Measured with this module's real detect_crop() on the reference files,
-    fetch time for the same 15 probes (and the same box) with the policy
-    forced each way, medians of 4 interleaved runs on a shared, loaded
-    machine: XWZ 168 (3840x2160, 10-bit HEVC) one-shot 3.33s vs persistent
-    1.09s; XWZ 169 3.47s vs 1.03s; slay (1920x888, HEVC) one-shot 0.91s vs
-    persistent 1.20s. A resolution sweep re-encoded from one XWZ scene
-    (720p..2160p, same keyframe positions and bits per pixel) had
-    persistent winning at every size, so the crossover is content-dependent
-    -- slay's longer GOPs and costlier-per-pixel decode favour one-shot
-    processes, whose ffmpeg decoders frame-thread each long decode run --
-    and the only real 1080p-class source measured favours one-shot grabs.
-    So the line sits just above 1080p: nothing at or below 1920x1080
-    changes.
-    """
-    width, height = frame_size
-    return width * height > PERSISTENT_FETCH_MIN_PIXELS
-
-
-def _open_frame_fetcher(video_path: str, known_dims: tuple[int, int],
-                        pool_size: int = PERSISTENT_POOL_SIZE) -> _PersistentFrameFetcher | None:
-    """The persistent fetcher for this source if the policy wants one, else
-    None (one-shot grabs). If the containers cannot be opened, logs a warning
-    and returns None: one-shot grabs still work wherever the ffmpeg CLI can
-    read the file."""
-    if not _prefers_persistent_fetch(known_dims):
-        return None
-    try:
-        return _PersistentFrameFetcher(video_path, known_dims, pool_size=pool_size)
-    except (av.error.FFmpegError, OSError, ValueError) as exc:
-        logger.warning(
-            "%s: could not open persistent decoders (%s: %s); falling back to one-shot ffmpeg grabs",
-            video_path, type(exc).__name__, exc,
-        )
-        return None
-
-
 def grab_frames(video_path: str, times: list[float], band_frac: float = 0.55,
                  target_height: int = TARGET_HEIGHT) -> list[np.ndarray]:
     """Frames at `times`, cropped to the bottom `band_frac` of the frame and
     scaled to `target_height`, in the same order as `times`.
 
-    Fetched by parallel one-shot ffmpeg grabs, or -- above the resolution
-    crossover, see _prefers_persistent_fetch() -- by a pool of persistent
-    containers; the frames are identical either way.
+    Fetched by parallel one-shot ffmpeg grabs (see _grab_frames_with_times()).
 
     These are NOT the pixels the OCR pass sees, and on some sources not even
     its frames: a full-width band through crop -> scale -> bgr24 (or the
     system ffmpeg CLI), where the OCR pass decodes through
-    videocr.pyav_adapter.Capture with its own decode downscale, crop and
+    videocr.ffmpeg_capture.Capture with its own decode downscale, crop and
     brightness mask. Measured: identical on Slay the Gods (1080p 8-bit), but
     87-90% of pixels off by up to 13 levels on XWZ (4K 10-bit) and a
     different frame on Jinwu Guard (h264 MKV) -- see task-4-report.md. Use
@@ -926,19 +642,8 @@ def grab_frames(video_path: str, times: list[float], band_frac: float = 0.55,
     if not times:
         return []
     orig_w, orig_h, transfer = _probe_source(video_path)
-    known_dims = (orig_w, orig_h)
-    # No more containers than frames asked for: each persistent 4K decoder
-    # holds several decoded reference frames.
-    fetcher = _open_frame_fetcher(video_path, known_dims,
-                                  pool_size=min(PERSISTENT_POOL_SIZE, len(times)))
-    if fetcher is None:
-        pairs, _ = _grab_frames_with_times(video_path, times, band_frac, target_height,
-                                           known_dims=known_dims, transfer=transfer)
-    else:
-        try:
-            pairs, _ = fetcher.fetch(times, band_frac, target_height)
-        finally:
-            fetcher.close()
+    pairs, _ = _grab_frames_with_times(video_path, times, band_frac, target_height,
+                                       known_dims=(orig_w, orig_h), transfer=transfer)
     return [frame for _, frame in pairs]
 
 
@@ -1432,7 +1137,6 @@ def _run_round(video_path: str, times: list[float], det_engine, band_frac: float
                 frame_size: tuple[int, int], settings: dict | None,
                 known_dims: tuple[int, int] | None = None,
                 cancel_check: Callable[[], bool] | None = None,
-                fetcher: _PersistentFrameFetcher | None = None,
                 transfer=_PROBE,
                 ) -> tuple[list, list[float], int, list[float]]:
     """Fetch+detect `times` in PROBE_BATCH_SIZE-sized batches, stopping
@@ -1507,14 +1211,12 @@ def _run_round(video_path: str, times: list[float], det_engine, band_frac: float
     `transfer`: the source's color_transfer (see _probe_source()), which
     decides whether one-shot grabs tone-map; probed when not given.
 
-    `fetcher`: the persistent-container fetcher detect_crop() opened for
-    this source (see _prefers_persistent_fetch()), or None for one-shot
-    grabs. Either way each fetched frame is recorded -- in sample_pts and
-    frame_times alike -- under its probe's requested time: a time that
-    re-fetches exactly the analysed frame through this module's fetch layer
-    (at-or-after, ms-rounded), which may precede the frame's true PTS by up
-    to one frame (see CropResult.sample_pts for why not the PTS). Grabs that
-    fail return no frame and are not recorded, but the probe budget
+    Each fetched frame is recorded -- in sample_pts and frame_times alike --
+    under its probe's requested time: a time that re-fetches exactly the
+    analysed frame through this module's fetch layer (at-or-after,
+    ms-rounded), which may precede the frame's true PTS by up to one frame
+    (see CropResult.sample_pts for why not the PTS). Grabs that fail return
+    no frame and are not recorded, but the probe budget
     (MAX_PROBES_PER_ROUND) counts requested probes, so they still spend it.
 
     Returns (polys_per_frame, sample_pts_used, raw_hit_count, frame_times).
@@ -1547,13 +1249,10 @@ def _run_round(video_path: str, times: list[float], det_engine, band_frac: float
         i += len(chunk)
         attempted += len(chunk)
 
-        if fetcher is None:
-            pairs, geometry = _grab_frames_with_times(
-                video_path, chunk, band_frac, TARGET_HEIGHT, known_dims=known_dims,
-                transfer=transfer,
-            )
-        else:
-            pairs, geometry = fetcher.fetch(chunk, band_frac, TARGET_HEIGHT)
+        pairs, geometry = _grab_frames_with_times(
+            video_path, chunk, band_frac, TARGET_HEIGHT, known_dims=known_dims,
+            transfer=transfer,
+        )
         # Only the probes that returned a frame, each under its requested
         # time: re-requesting that time (the UI slider, the filmstrip, the
         # full-frame retry below) lands on exactly the frame analysed here
@@ -1742,10 +1441,9 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
     roughly one batch of one file, not only between whole files.
 
     Orchestration: vad.probe_times() picks candidate timestamps ranked by
-    likelihood of carrying dialogue -> they are fetched in batches (one-shot
-    grabs, or persistent containers above the resolution crossover -- see
-    _prefers_persistent_fetch()), already cropped to the bottom band and
-    downscaled ->
+    likelihood of carrying dialogue -> they are fetched in batches by parallel
+    one-shot ffmpeg grabs, already cropped to the bottom band and downscaled
+    ->
     det_engine.predict() scores each frame's text polygons -> polys
     scoring >= 0.9 that also fall in-band are kept and mapped back to
     full-frame coordinates -> _run_round() stops once the raw (unfiltered)
@@ -1808,73 +1506,65 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
         times = _uniform_probe_times(duration_sec)
         flagged = _compose_flag(flagged, FLAG_NO_SPEECH)
 
-    # Opened once per file and shared by every round below; closed however
-    # detection ends (including an exception from the engine), since each
-    # container holds several decoded reference frames.
-    fetcher = _open_frame_fetcher(video_path, known_dims)
     used_full_frame_retry = False
     # Every round's (sample_pts, polys_per_frame, frame_times, full-frame
     # retry?), for CropResult.samples only.
     rounds: list[tuple[list[float], list, list[float], bool]] = []
-    try:
+    polys_per_frame, used, raw_hits, frame_times = _run_round(
+        video_path, times, det_engine, band_frac=BOTTOM_HALF_CUTOFF,
+        consensus=consensus, frame_size=frame_size, settings=settings, known_dims=known_dims,
+        cancel_check=cancel_check, transfer=transfer,
+    )
+    sample_pts.extend(used)
+    rounds.append((used, polys_per_frame, frame_times, False))
+    # Checked (and reused, not re-polled) once per round, right after that
+    # round returns: cancel_check() cutting a round short is a real,
+    # distinct reason a round found little or nothing -- composed
+    # explicitly here (FLAG_CANCELLED) rather than left to be inferred
+    # from an absent flag downstream, which is exactly how round 1's
+    # cancellation went unflagged before this (see task-3 review round 3):
+    # the round-2/round-3 entry gates below skip on `not cancelled`, so a
+    # file cancelled during round 1 with zero hits never triggered
+    # FLAG_SPEECH_PROBES_EXHAUSTED or FLAG_TOP_POSITIONED either, and
+    # nothing else was there to explain the resulting box=None.
+    cancelled = _is_cancelled(cancel_check)
+    if cancelled:
+        flagged = _compose_flag(flagged, FLAG_CANCELLED)
+
+    if raw_hits == 0 and speech_probing_available and not cancelled:
+        uniform_times = _uniform_probe_times(duration_sec)
         polys_per_frame, used, raw_hits, frame_times = _run_round(
-            video_path, times, det_engine, band_frac=BOTTOM_HALF_CUTOFF,
-            consensus=consensus, frame_size=frame_size, settings=settings, known_dims=known_dims,
-            cancel_check=cancel_check, fetcher=fetcher, transfer=transfer,
+            video_path, uniform_times, det_engine, band_frac=BOTTOM_HALF_CUTOFF,
+            consensus=consensus, frame_size=frame_size, settings=settings,
+            known_dims=known_dims, cancel_check=cancel_check,
+            transfer=transfer,
         )
         sample_pts.extend(used)
         rounds.append((used, polys_per_frame, frame_times, False))
-        # Checked (and reused, not re-polled) once per round, right after that
-        # round returns: cancel_check() cutting a round short is a real,
-        # distinct reason a round found little or nothing -- composed
-        # explicitly here (FLAG_CANCELLED) rather than left to be inferred
-        # from an absent flag downstream, which is exactly how round 1's
-        # cancellation went unflagged before this (see task-3 review round 3):
-        # the round-2/round-3 entry gates below skip on `not cancelled`, so a
-        # file cancelled during round 1 with zero hits never triggered
-        # FLAG_SPEECH_PROBES_EXHAUSTED or FLAG_TOP_POSITIONED either, and
-        # nothing else was there to explain the resulting box=None.
+        flagged = _compose_flag(flagged, FLAG_SPEECH_PROBES_EXHAUSTED)
         cancelled = _is_cancelled(cancel_check)
         if cancelled:
             flagged = _compose_flag(flagged, FLAG_CANCELLED)
 
-        if raw_hits == 0 and speech_probing_available and not cancelled:
-            uniform_times = _uniform_probe_times(duration_sec)
-            polys_per_frame, used, raw_hits, frame_times = _run_round(
-                video_path, uniform_times, det_engine, band_frac=BOTTOM_HALF_CUTOFF,
-                consensus=consensus, frame_size=frame_size, settings=settings,
-                known_dims=known_dims, cancel_check=cancel_check, fetcher=fetcher,
-                transfer=transfer,
-            )
-            sample_pts.extend(used)
-            rounds.append((used, polys_per_frame, frame_times, False))
-            flagged = _compose_flag(flagged, FLAG_SPEECH_PROBES_EXHAUSTED)
-            cancelled = _is_cancelled(cancel_check)
-            if cancelled:
-                flagged = _compose_flag(flagged, FLAG_CANCELLED)
-
-        if raw_hits == 0 and not cancelled:
-            retry_times = _uniform_probe_times(duration_sec) if not sample_pts else sample_pts
-            # Reuse the already-attempted timestamps for the full-frame retry
-            # rather than probing new ones -- we already know these timestamps
-            # exist in the video; band_frac=1.0 just widens what we look at.
-            retry_times = sorted(set(retry_times))
-            polys_per_frame, used, raw_hits, frame_times = _run_round(
-                video_path, retry_times, det_engine, band_frac=1.0,
-                consensus=consensus, frame_size=frame_size,
-                settings={**(settings or {}), "bottom_half_cutoff": 0.0},
-                known_dims=known_dims, cancel_check=cancel_check, fetcher=fetcher,
-                transfer=transfer,
-            )
-            sample_pts.extend(used)
-            rounds.append((used, polys_per_frame, frame_times, True))
-            flagged = _compose_flag(flagged, FLAG_TOP_POSITIONED)
-            used_full_frame_retry = True
-            if _is_cancelled(cancel_check):
-                flagged = _compose_flag(flagged, FLAG_CANCELLED)
-    finally:
-        if fetcher is not None:
-            fetcher.close()
+    if raw_hits == 0 and not cancelled:
+        retry_times = _uniform_probe_times(duration_sec) if not sample_pts else sample_pts
+        # Reuse the already-attempted timestamps for the full-frame retry
+        # rather than probing new ones -- we already know these timestamps
+        # exist in the video; band_frac=1.0 just widens what we look at.
+        retry_times = sorted(set(retry_times))
+        polys_per_frame, used, raw_hits, frame_times = _run_round(
+            video_path, retry_times, det_engine, band_frac=1.0,
+            consensus=consensus, frame_size=frame_size,
+            settings={**(settings or {}), "bottom_half_cutoff": 0.0},
+            known_dims=known_dims, cancel_check=cancel_check,
+            transfer=transfer,
+        )
+        sample_pts.extend(used)
+        rounds.append((used, polys_per_frame, frame_times, True))
+        flagged = _compose_flag(flagged, FLAG_TOP_POSITIONED)
+        used_full_frame_retry = True
+        if _is_cancelled(cancel_check):
+            flagged = _compose_flag(flagged, FLAG_CANCELLED)
 
     cutoff_frac = 0.0 if used_full_frame_retry else float(
         (settings or {}).get("bottom_half_cutoff", BOTTOM_HALF_CUTOFF)

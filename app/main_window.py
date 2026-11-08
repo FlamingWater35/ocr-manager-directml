@@ -62,7 +62,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 from collections.abc import Callable
 
 from PyQt6.QtCore import QByteArray, Qt
@@ -90,6 +89,7 @@ from app.engine import engine_problem
 from app.logbook import PIPELINE_LOG
 from app.state_text import can_mark_reviewed, can_run_proof
 from app.theme import tokens
+from core import ffmpeg as ffmpeg_tool
 from app.views.activity import ActivityStrip
 from app.views.banner import Banner
 from app.views.episode import DoneView, PrepareView, WorkingView
@@ -118,7 +118,6 @@ GEOMETRY_KEY = "window/geometry"
 # needs twice the room to show the same rail, stage and inspector. Geometry
 # the user set themselves is restored verbatim and never scaled.
 DEFAULT_SIZE = (1440, 900)
-REQUIRED_TOOLS = ("ffmpeg", "ffprobe")
 # Files warmed ahead of the queue's cursor on every selection
 # (ProjectController.set_view_file -> AutoPilot.boost_warm). Eight covers a
 # run of fast Down-arrows: a file's strips take 2-4 s to decode on a 4K
@@ -147,25 +146,14 @@ BLOCKED_SAVE_TEXT = ("This folder's .ocr.json could not be written, so nothing y
 
 def dependency_problems() -> list[tuple[str, str]]:
     """(title, text) per missing dependency, in today's words (main.py
-    check_dependencies): the tools on PATH, the bit-exact video backend, and,
-    in a portable bundle, the OCR engine (`app.engine.engine_problem`)."""
+    check_dependencies): the ffmpeg decoder, and the OCR engine
+    (`app.engine.engine_problem`)."""
     problems = []
     engine = engine_problem()
     if engine is not None:
         problems.append(engine)
-    missing = [tool for tool in REQUIRED_TOOLS if not shutil.which(tool)]
-    if missing:
-        problems.append(("Missing Dependencies",
-                         f"Required tools not found in PATH:\n{', '.join(missing)}\n\n"
-                         f"Please install them before using this application."))
-    from videocr import pyav_adapter
-    if not pyav_adapter.PYAV_AVAILABLE:
-        problems.append(("Video backend degraded",
-                         "PyAV is not available, so video will be decoded by a fallback "
-                         "backend that is not bit-exact and estimates timestamps.\n\n"
-                         "Fix it with:\n"
-                         "    .venv/bin/pip install -U --only-binary=:all: av\n\n"
-                         f"Import error: {pyav_adapter.PYAV_IMPORT_ERROR}"))
+    if ffmpeg_tool.missing_tools():
+        problems.append(("Missing Dependencies", ffmpeg_tool.missing_message()))
     return problems
 
 

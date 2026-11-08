@@ -88,7 +88,7 @@ from core.jobs.runner import JobContext, Lane
 from core.project.ocr_kwargs import ocr_call_for
 from videocr import api as _api
 from videocr import engine_registry
-from videocr import pyav_adapter as _pyav_adapter
+from videocr import ffmpeg_capture as _ffmpeg_capture
 from videocr import utils as _videocr_utils
 
 if TYPE_CHECKING:
@@ -228,7 +228,7 @@ class MetadataJob:
         if ctx.cancelled():
             return None
         duration, fps = _ocr_view.video_timing(self.video_path)
-        with _pyav_adapter.Capture(self.video_path) as cap:
+        with _ffmpeg_capture.Capture(self.video_path) as cap:
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
         return MetadataResult(self.file, width, height, float(duration), float(fps))

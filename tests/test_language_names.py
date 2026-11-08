@@ -1,41 +1,48 @@
-"""The Folder settings language list is every language PaddleOCR can read.
+"""The Folder settings language list is every language the OCR engine can read.
 
-`LANGUAGE_NAMES` is static (a frozen build installs Paddle on first run, so
-the sheet cannot ask it). This test reads the installed paddleocr's own
-language lists out of `_get_ocr_model_names` and fails when the two drift
-apart, e.g. after a paddleocr upgrade adds or drops a language. It also
-checks every listed language names its output with a well-formed tag
-(core.project.languages.output_tag).
+`LANGUAGE_NAMES` is static (the settings sheet cannot ask the engine, and a
+free-text language must still name a safe output path). This test holds the
+list against the engine's own routing tables -- `videocr.ocr_engine.route_for`
+and RapidOCR's `route_to_model_key` -- so the two cannot drift apart, e.g.
+after a RapidOCR upgrade adds or drops a language, or a new code is added to
+the settings without a route. It also checks every listed language names its
+output with a well-formed tag (core.project.languages.output_tag).
 """
 from __future__ import annotations
 
-import ast
-import inspect
 import re
-import textwrap
 
 import pytest
 
 from app.views.folder_settings_fields import LANGUAGE_NAMES, LANGUAGES, language_label
 from core.project.languages import output_tag
+from videocr import ocr_engine
 
 TAG = re.compile(r"^[a-z]{2,3}(-([A-Z][a-z]{3}|[A-Z]{2}))?$")      # language, then a script or a region
 
-ALIASES = {"french": "fr", "german": "de"}      # Paddle accepts both spellings; the list shows one
+
+def test_every_listed_language_has_a_route_of_its_own():
+    """No listed language may fall back to the default route: the fallback
+    reads `ch`, which would silently read, say, Hindi as Chinese."""
+    unrooted = sorted(code for code in LANGUAGE_NAMES if ocr_engine.route_for(code).lang_type == "ch"
+                      and code != "ch")
+    assert not unrooted, f"listed languages with no route of their own: {unrooted}"
 
 
-def paddle_languages() -> set[str]:
-    """Every `lang` string named in `_get_ocr_model_names` that resolves to a recognition model."""
-    ocr = pytest.importorskip("paddleocr._pipelines.ocr")      # only this needs paddle installed
-    source = textwrap.dedent(inspect.getsource(ocr.PaddleOCR._get_ocr_model_names))
-    named = {node.value for node in ast.walk(ast.parse(source))
-             if isinstance(node, ast.Constant) and isinstance(node.value, str)}
-    return {lang for lang in named if ocr.PaddleOCR._get_ocr_model_names(None, lang, None)[1] is not None}
+@pytest.mark.parametrize("code", sorted(LANGUAGE_NAMES))
+def test_each_listed_language_resolves_to_a_real_model(code):
+    """`route_to_model_key` only answers for a language its route supports, so
+    this fails if our table maps a code onto a script the model lacks."""
+    route = ocr_engine.route_for(code)
+    assert ocr_engine.route_model_key(route), code
 
 
-def test_the_list_is_exactly_the_languages_paddle_reads():
-    assert set(LANGUAGE_NAMES) == paddle_languages() - set(ALIASES)
-    assert set(ALIASES.values()) <= set(LANGUAGE_NAMES)
+def test_the_bundled_route_covers_the_languages_it_claims():
+    """The bundled PP-OCRv6 model needs no download, so its language set is
+    the one that works offline out of the box."""
+    bundled = {code for code in LANGUAGE_NAMES if ocr_engine.route_for(code).version == "PP-OCRv6"}
+    assert "ch" in bundled and "en" in bundled and "japan" in bundled
+    assert not ocr_engine._needs_download(ocr_engine.route_for("ch"))
 
 
 def test_the_list_is_sorted_by_name_and_every_label_is_unique():

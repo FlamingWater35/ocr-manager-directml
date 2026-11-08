@@ -10,7 +10,7 @@ import time
 from . import engine_registry, utils
 from .models import PredictedFrames, PredictedSubtitle
 
-from .pyav_adapter import Capture, DECODE_TARGET_HEIGHT
+from .ffmpeg_capture import Capture, DECODE_TARGET_HEIGHT
 
 # Batch size for OCR processing - higher values = faster but more GPU memory.
 # Smaller batches flush more often, so OCR inference on an early batch
@@ -356,7 +356,7 @@ class Video:
         profiling_start = time.perf_counter()
 
         # Single container open for this range. decode_target_height is
-        # always requested at the module's standard target: PyAVCapture
+        # always requested at the module's standard target: FFmpegCapture
         # only actually downscales when the source is taller than it (see
         # its __enter__), so this is a no-op for <=1080p sources and still
         # gets 4K+ sources their decode-time downscale. Container metadata
@@ -369,13 +369,13 @@ class Video:
         # doing so needs it pre-scaled to decode-output coordinates, which
         # needs self.height known *before* opening - exactly the
         # chicken-and-egg this change removes. Instead it's configured
-        # below, after opening, via Capture.configure_crop() (PyAVCapture
+        # below, after opening, via Capture.configure_crop() (FFmpegCapture
         # exposes this so a caller can plan+build the crop into the filter
         # graph once it knows one, as long as that happens before the
-        # first read()/set() - see pyav_adapter.py). That keeps the graph
+        # first read()/set() - see ffmpeg_capture.py). That keeps the graph
         # -level crop optimisation working for every source that needs a
         # filter graph anyway (tone-mapped and/or downscaled), which is
-        # the only case PyAVCapture._plan_crop ever plans a graph crop for
+        # the only case FFmpegCapture._plan_crop ever plans a graph crop for
         # in the first place; the golden/determinism cases (1080p SDR, no
         # downscale) never engaged it even before this file existed, so
         # they see no difference either way.
@@ -416,7 +416,7 @@ class Video:
                     crop_x_start, crop_y_start, crop_x_end, crop_y_end = region
 
             # Decode-level downscaling for 4K+ videos. Mirrors the same
-            # self.height > DECODE_TARGET_HEIGHT check PyAVCapture just made
+            # self.height > DECODE_TARGET_HEIGHT check FFmpegCapture just made
             # internally with the same constant, so this always agrees with
             # what the capture above actually did.
             decode_height = DECODE_TARGET_HEIGHT if self.height > DECODE_TARGET_HEIGHT else None
@@ -457,8 +457,8 @@ class Video:
             # own precondition). _frame_producer still receives
             # crop_x_start/... regardless: if the graph didn't take the
             # crop (v._crop_slice stays None - no filter graph existed for
-            # this source, or PyAV isn't available), it slices in Python
-            # instead, off the identical values either path would use.
+            # this source), it slices in Python instead, off the identical
+            # values either path would use.
             graph_crop = None
             if crop_x_end is not None and crop_y_end is not None:
                 graph_crop = (crop_x_start, crop_y_start,

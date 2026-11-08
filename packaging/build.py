@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build OCR Manager's release artifacts for the host OS.
+"""Build OCR Manager's Windows release artifacts.
 
     python packaging/build.py                 # bundle + artifacts into dist/
     python packaging/build.py --bundle-only   # just the runnable tree
@@ -7,24 +7,21 @@
 
 Stdlib only; any Python 3.11+ runs it. What it builds:
 
-    <root>/python/          python-build-standalone CPython, with every runtime
-                            dependency in its own site-packages EXCEPT Paddle
+    <root>/python/          python-build-standalone CPython with every runtime
+                            dependency in its own site-packages, RapidOCR and
+                            onnxruntime-directml included
     <root>/src/             main.py, app/, core/, videocr/, resources/
     <root>/bin/             static ffmpeg + ffprobe (put on PATH by the launcher)
     <root>/licenses/        third-party notices
     <root>/bundle.json      {"version", "os", "arch"}
-    <root>/constraints.txt  pip freeze of the bundled interpreter: the first-run
-                            Paddle install is constrained by it, so it never
-                            shadows or upgrades a bundled package
 
-Paddle (the CPU or a CUDA build, chosen for the machine) is installed by the
-app on first run into the user's data folder -- see core/runtime/.
+Nothing is installed on first run any more: the OCR engine is part of the
+bundle, so a fresh copy reads subtitles immediately. The only thing fetched at
+run time is a recognition model for a language PP-OCRv6 does not cover, into
+the user's data folder (`--download-models` prefetches all of them).
 
-Artifacts, named ocr-manager-v<X.Y.Z>-<os>.<ext>:
-
-    linux  .tar.gz (portable tree) and .AppImage
-    win    .exe (per-user Inno Setup installer) and .zip (portable tree)
-    mac    .dmg (OCR Manager.app, Apple Silicon, macOS 14.5+)
+Artifacts, named ocr-manager-v<X.Y.Z>-win.<ext>: .exe (per-user Inno Setup
+installer) and .zip (portable tree).
 
 Everything downloaded is pinned by URL and SHA-256 and cached in --cache.
 """
@@ -52,38 +49,27 @@ PACKAGING = REPO / "packaging"
 
 APP_NAME = "OCR Manager"
 BUNDLE_ID = "uk.blyat.ocr-manager"
-MACOS_MIN = "14.5"          # Paddle's macOS arm64 wheel is built for 14.5
 
 # python-build-standalone: https://github.com/astral-sh/python-build-standalone
 PYTHON = "3.12.14"
 PBS_RELEASE = "20260901"
 PBS_ASSETS = {
-    ("linux", "x86_64"): ("x86_64-unknown-linux-gnu",
-                          "72748da13197c1fb161e3afeef20a6a385ff24f2165e6e2758e47008e7faba4c"),
     ("win", "x86_64"): ("x86_64-pc-windows-msvc",
                         "7c45c9622400d578709a9b2cddbe8124cc21d382409d9f13406d706d28e31b14"),
-    ("mac", "arm64"): ("aarch64-apple-darwin",
-                       "81a359f1cfadd4da11766534c5913791cea55f26e1bb902cacd2a531bb1e4b2b"),
 }
 
-# Static ffmpeg/ffprobe. Linux and Windows: BtbN's LGPL builds, a month-end
-# autobuild (kept for two years). macOS arm64: martin-riedl.de's signed builds.
+# Static ffmpeg/ffprobe: BtbN's LGPL build, a month-end autobuild (kept for two
+# years). The app decodes video by piping frames out of this ffmpeg, so this
+# build is what decides how the frames look.
 _BTBN = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-31-13-27/"
-_RIEDL = "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/"
 FFMPEG = {
-    "linux": [(_BTBN + "ffmpeg-n8.1.2-50-g1a748fe2cd-linux64-lgpl-8.1.tar.xz",
-               "7d6d93e9c39e0e461feb13c118e91e4eec2515e4da3a01d4ad6790996731bbee")],
     "win": [(_BTBN + "ffmpeg-n8.1.2-50-g1a748fe2cd-win64-lgpl-8.1.zip",
              "f6274bbd9c247f9e90c1bbed066b03ed4a3907cece2fb91be6dd352393936365")],
-    "mac": [(_RIEDL + "ffmpeg.zip", "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924"),
-            (_RIEDL + "ffprobe.zip", "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6")],
 }
 
-APPIMAGETOOL = ("https://github.com/AppImage/appimagetool/releases/download/continuous/"
-                "appimagetool-x86_64.AppImage")
-
-# The MSVC runtime Paddle's Windows wheels link against, shipped app-local
-# next to python.exe so no VC++ redistributable install is needed.
+# The MSVC runtime the bundled wheels (onnxruntime, PyQt6, OpenCV, scipy) link
+# against, shipped app-local next to python.exe so no VC++ redistributable
+# install is needed.
 MSVC_RUNTIME = ("msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll",
                 "vcruntime140.dll", "vcruntime140_1.dll", "concrt140.dll", "vcomp140.dll")
 
@@ -93,7 +79,8 @@ SOURCES = ("main.py", "app", "core", "videocr", "resources")
 
 # The interpreter flags every launcher uses: no user site (-s) and no PYTHON*
 # variables (-E), so nothing on the user's machine leaks in; no bytecode
-# writes (-B: the tree may be read-only, and on macOS it is signed); UTF-8 mode.
+# writes (-B: the tree may be read-only, and the installer may be running from
+# a read-only place); UTF-8 mode.
 PY_FLAGS = ("-s", "-E", "-B", "-X", "utf8")
 
 
@@ -144,10 +131,10 @@ def annotate(title: str, text: str) -> None:
 
 def host() -> tuple[str, str]:
     system, machine = platform.system(), platform.machine().lower()
-    os_name = {"Linux": "linux", "Windows": "win", "Darwin": "mac"}.get(system)
-    arch = {"amd64": "x86_64", "x86_64": "x86_64", "arm64": "arm64", "aarch64": "arm64"}.get(machine)
+    os_name = {"Windows": "win"}.get(system)
+    arch = {"amd64": "x86_64", "x86_64": "x86_64"}.get(machine)
     if (os_name, arch) not in PBS_ASSETS:
-        sys.exit(f"unsupported build host: {system} {machine}")
+        sys.exit(f"unsupported build host: {system} {machine} (Windows x64 only)")
     return os_name, arch
 
 
@@ -217,13 +204,6 @@ def install_dependencies(root: Path, os_name: str) -> None:
     run([*pip, "install", "--only-binary=:all:",
          "-r", PACKAGING / "requirements-bundle.txt",
          "-c", PACKAGING / "constraints-bundle.txt"], env=env)
-    # Paddle came in only so its own dependencies resolve with the rest; the
-    # app installs the build that suits the machine on first run.
-    run([*pip, "uninstall", "-y", "paddlepaddle"], env=env)
-    frozen = subprocess.run([str(py), "-s", "-E", "-m", "pip", "freeze", "--all"], check=True,
-                            capture_output=True, text=True, env=env).stdout
-    lines = [ln for ln in frozen.splitlines() if ln and not ln.lower().startswith("paddlepaddle")]
-    (root / "constraints.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     if os_name == "win":
         system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
         for dll in MSVC_RUNTIME:
@@ -250,7 +230,7 @@ def prune_qt(root: Path, os_name: str) -> None:
     lib = root / "python" / ("Lib" if os_name == "win" else f"lib/python{PYTHON.rsplit('.', 1)[0]}")
     pyqt = lib / "site-packages" / "PyQt6"
     unused = re.compile(r"^(?:lib)?Qt6?(?:%s)" % "|".join(QT_UNUSED))
-    # Qt Multimedia's own FFmpeg (PyAV carries the one the app decodes with).
+    # Qt Multimedia's own FFmpeg libraries: the app decodes with bin/ffmpeg.exe.
     qt_ffmpeg = re.compile(r"^(?:lib)?(?:avcodec|avformat|avutil|swresample|swscale)[-.]")
     removed = 0
     for entry in pyqt.iterdir():
@@ -333,9 +313,7 @@ def install_ffmpeg(root: Path, os_name: str, cache: Path) -> None:
 
 
 def write_notices(root: Path, os_name: str) -> None:
-    ffmpeg_src = ("BtbN/FFmpeg-Builds (LGPL build), https://github.com/BtbN/FFmpeg-Builds"
-                  if os_name != "mac" else
-                  "ffmpeg.martin-riedl.de (static build), https://ffmpeg.martin-riedl.de")
+    ffmpeg_src = "BtbN/FFmpeg-Builds (LGPL build), https://github.com/BtbN/FFmpeg-Builds"
     text = f"""OCR Manager bundles third-party software. Each keeps its own license.
 
 - CPython {PYTHON} (python-build-standalone {PBS_RELEASE}): PSF License,
@@ -346,7 +324,11 @@ def write_notices(root: Path, os_name: str) -> None:
   FFmpeg is licensed under the LGPL v2.1+ (GPL v2+ for GPL builds); its
   source is available at https://ffmpeg.org/download.html and from the
   build project above.
-- Paddle / PaddleOCR / PaddleX (installed on first run): Apache License 2.0.
+- RapidOCR: Apache License 2.0. The PP-OCR models it carries in
+  site-packages/rapidocr/models are published by PaddlePaddle (Apache
+  License 2.0).
+- ONNX Runtime and DirectML (onnxruntime-directml): MIT License, with the
+  DirectML redistributable under the Microsoft Windows SDK terms.
 """
     (root / "licenses").mkdir(exist_ok=True)
     (root / "licenses" / "THIRD-PARTY.txt").write_text(text, encoding="utf-8")
@@ -380,45 +362,7 @@ def make_ico(py: Path, out: Path) -> None:
          REPO / "resources" / "app-icon.png", out])
 
 
-def make_icns(out: Path, work: Path) -> None:
-    iconset = work / "app.iconset"
-    shutil.rmtree(iconset, ignore_errors=True)
-    iconset.mkdir(parents=True)
-    png = REPO / "resources" / "app-icon.png"
-    for size in (16, 32, 128, 256, 512):
-        for scale in (1, 2):
-            px = size * scale
-            name = f"icon_{size}x{size}{'@2x' if scale == 2 else ''}.png"
-            run(["sips", "-z", px, px, png, "--out", iconset / name], stdout=subprocess.DEVNULL)
-    run(["iconutil", "-c", "icns", iconset, "-o", out])
-
-
-# -- per-OS layouts and artifacts ------------------------------------------
-
-def linux_artifacts(tree: Path, version: str, dist: Path, cache: Path) -> list[Path]:
-    launcher = tree / "ocr-manager"
-    shutil.copy2(PACKAGING / "linux" / "ocr-manager", launcher)
-    launcher.chmod(0o755)
-    shutil.copy2(REPO / "resources" / "app-icon.png", tree / "ocr-manager.png")
-    shutil.copy2(PACKAGING / "linux" / "ocr-manager.desktop", tree / "ocr-manager.desktop")
-
-    stem = f"ocr-manager-v{version}-linux"
-    tarball = dist / f"{stem}.tar.gz"
-    log(f"writing {tarball.name}")
-    with tarfile.open(tarball, "w:gz", compresslevel=6) as tar:
-        tar.add(tree, arcname=stem)
-
-    # AppImage: the same tree is the AppDir; AppRun is the launcher itself.
-    (tree / "AppRun").symlink_to("ocr-manager")
-    tool = fetch(APPIMAGETOOL, cache)
-    tool.chmod(0o755)
-    appimage = dist / f"{stem}.AppImage"
-    log(f"writing {appimage.name}")
-    run([tool, "--appimage-extract-and-run", "--no-appstream", tree, appimage],
-        env={**os.environ, "ARCH": "x86_64"})
-    (tree / "AppRun").unlink()
-    return [tarball, appimage]
-
+# -- the Windows artifacts ---------------------------------------------------
 
 def windows_artifacts(tree: Path, version: str, dist: Path, work: Path) -> list[Path]:
     ico = work / "app.ico"
@@ -454,58 +398,8 @@ def windows_artifacts(tree: Path, version: str, dist: Path, work: Path) -> list[
     return [archive, dist / f"{stem}.exe"]
 
 
-_MACHO_MAGIC = {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xfe\xed\xfa\xcf"}
-
-
-def is_macho(path: Path) -> bool:
-    with open(path, "rb") as fh:
-        return fh.read(4) in _MACHO_MAGIC
-
-
-def mac_artifacts(tree: Path, version: str, dist: Path, work: Path) -> list[Path]:
-    app = work / f"{APP_NAME}.app"
-    shutil.rmtree(app, ignore_errors=True)
-    contents = app / "Contents"
-    (contents / "MacOS").mkdir(parents=True)
-    shutil.move(str(tree), str(contents / "Resources"))
-    shutil.copy2(PACKAGING / "mac" / "ocr-manager", contents / "MacOS" / "ocr-manager")
-    (contents / "MacOS" / "ocr-manager").chmod(0o755)
-    make_icns(contents / "Resources" / "app.icns", work)
-    plist = (PACKAGING / "mac" / "Info.plist").read_text(encoding="utf-8")
-    for key, value in {"VERSION": version, "BUNDLE_ID": BUNDLE_ID, "MACOS_MIN": MACOS_MIN}.items():
-        plist = plist.replace(f"@{key}@", value)
-    (contents / "Info.plist").write_text(plist, encoding="utf-8")
-    # Ad-hoc signatures: Apple Silicon refuses unsigned code, and a sealed
-    # bundle gets "Open Anyway" rather than "damaged". Nested Mach-O files
-    # outside the standard places are not reached by --deep, so each one is
-    # signed first, then the bundle seals them.
-    machos = [p for p in (contents / "Resources").rglob("*")
-              if p.is_file() and not p.is_symlink() and is_macho(p)]
-    log(f"signing {len(machos)} binaries")
-    for i in range(0, len(machos), 200):
-        run(["codesign", "--force", "--sign", "-", *machos[i:i + 200]], stdout=subprocess.DEVNULL)
-    run(["codesign", "--force", "--sign", "-", app])
-    run(["codesign", "--verify", "--deep", "--strict", app])
-
-    stage = work / "dmg"
-    shutil.rmtree(stage, ignore_errors=True)
-    stage.mkdir()
-    shutil.move(str(app), str(stage / app.name))
-    (stage / "Applications").symlink_to("/Applications")
-    dmg = dist / f"ocr-manager-v{version}-mac.dmg"
-    log(f"writing {dmg.name}")
-    run(["hdiutil", "create", "-volname", APP_NAME, "-srcfolder", stage, "-ov",
-         "-format", "UDZO", "-fs", "HFS+", dmg])
-    # Keep a runnable copy of the app for the smoke tests.
-    shutil.move(str(stage / app.name), str(work / app.name))
-    return [dmg]
-
-
-def tree_path(work: Path, os_name: str) -> Path:
-    """Where the runnable bundle root is after a build (the mac root lives
-    inside the .app)."""
-    if os_name == "mac":
-        return work / f"{APP_NAME}.app" / "Contents" / "Resources"
+def tree_path(work: Path) -> Path:
+    """Where the runnable bundle root is after a build."""
     return work / "tree"
 
 
@@ -515,7 +409,7 @@ def run_bundle(work: Path, args: list[str]) -> int:
     """Run the built bundle's app with a console interpreter, exactly as the
     launchers do (same env and flags): CI's smoke tests go through this."""
     os_name, _ = host()
-    root = tree_path(work, os_name)
+    root = tree_path(work)
     if not (root / "bundle.json").exists():
         sys.exit(f"no bundle at {root}; build it first")
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
@@ -549,22 +443,14 @@ def main(argv: list[str] | None = None) -> int:
     work, dist, cache = args.work.resolve(), args.dist.resolve(), args.cache.resolve()
     work.mkdir(parents=True, exist_ok=True)
     dist.mkdir(parents=True, exist_ok=True)
-    shutil.rmtree(work / f"{APP_NAME}.app", ignore_errors=True)
 
     tree = work / "tree"
     log(f"building OCR Manager {version} for {os_name}/{arch}")
     build_tree(tree, version, os_name, arch, cache)
     if args.bundle_only:
-        if os_name == "mac":
-            sys.exit("--bundle-only is not supported on macOS (the tree lives in the .app)")
         return 0
 
-    if os_name == "linux":
-        outputs = linux_artifacts(tree, version, dist, cache)
-    elif os_name == "win":
-        outputs = windows_artifacts(tree, version, dist, work)
-    else:
-        outputs = mac_artifacts(tree, version, dist, work)
+    outputs = windows_artifacts(tree, version, dist, work)
     for path in outputs:
         print(f"    {path.name}  {path.stat().st_size / 1e6:.0f} MB")
     return 0

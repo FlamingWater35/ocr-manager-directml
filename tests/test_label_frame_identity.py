@@ -17,6 +17,10 @@ every sample and an OCR engine that records what it is given, and assert
 that for every phase-1 sample, phase 1.5 read a frame with the *same PTS*
 and *byte-identical pixels*, and OCR'd the same crop.
 
+The reference decode is plain ffmpeg (tests/decode_reference.py): PTS from
+ffprobe, pixels from a rawvideo pipe. Nothing here shares code with the
+capture's seek path, and nothing needs PyAV.
+
 Clips cover a zero start time (what every golden is) and a 1.5 s
 container start time, in H.264, 10-bit HEVC, 23.976 fps and MKV. 1.5 s at
 25 fps is a half-frame position (37.5 frames), which makes any
@@ -27,21 +31,17 @@ control that the old frame-index re-fetch also passed; zero-start 10-bit
 HEVC in MP4 is not -- see its entry in CLIPS.
 """
 import bisect
-import json
 import logging
-import subprocess
-import sys
 import threading
-from pathlib import Path
 
-import av
 import cv2
 import numpy as np
 import pytest
 
-from videocr import pyav_adapter
+from decode_reference import decode_reference, encode, every_frame, have_encoder, start_time, stream_start_time
+from videocr import ffmpeg_capture
 from videocr.label_scanner import LabelScanner
-from videocr.pyav_adapter import FFmpegNVDECCapture, PyAVCapture
+from videocr.ffmpeg_capture import FFmpegCapture
 
 FRAMES = 100
 
@@ -68,11 +68,6 @@ CLIPS = {
 SIZES = {"zero-start-h264-960p": "1280x960"}
 # Clips whose video stream is remuxed to start this long after the audio.
 VIDEO_START = {"video-start-0.021s-mkv": 0.021, "video-start-0.021s-h265-10bit-mkv": 0.021}
-
-
-def _have_encoder(name):
-    out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
-    return any(line.split()[1:2] == [name] for line in out.splitlines())
 
 
 # Phase 1's own sampling (every 0.5 s), and every frame.
@@ -111,74 +106,15 @@ def _matrix(cases, fast):
     return params
 
 
-def _encode(path, pix_fmt, codec, rate, extra, size="320x240", video_start=None):
-    gop = (["-x265-params", "keyint=10:min-keyint=10:log-level=error"]
-           if codec == "libx265" else ["-g", "10"])
-    if video_start is None:
-        subprocess.run(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-             "-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}",
-             "-frames:v", str(FRAMES), "-pix_fmt", pix_fmt, "-c:v", codec,
-             *gop, *extra, str(path)],
-            check=True, capture_output=True,
-        )
-        return
-    # Encode video and audio both starting at 0 (with a millisecond encoder
-    # time base, so the offset is not rounded to a frame), then remux with
-    # the video input delayed.
-    plain = path.with_name(f"{path.stem}-plain{path.suffix}")
-    subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}",
-         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
-         "-map", "0:v", "-map", "1:a", "-frames:v", str(FRAMES), "-t", str(FRAMES / 25 + 0.2),
-         "-pix_fmt", pix_fmt, "-c:v", codec, *gop, "-enc_time_base:v", "1:1000",
-         "-c:a", "aac", *extra, str(plain)],
-        check=True, capture_output=True,
-    )
-    subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-itsoffset", str(video_start), "-i", str(plain), "-i", str(plain),
-         "-map", "0:v", "-map", "1:a", "-c", "copy", str(path)],
-        check=True, capture_output=True,
-    )
-    plain.unlink()
-
-
-def _start_time(path):
-    container = av.open(str(path))
-    try:
-        return (container.start_time or 0) / 1_000_000
-    finally:
-        container.close()
-
-
-def _video_start_time(path):
-    container = av.open(str(path))
-    try:
-        stream = container.streams.video[0]
-        return float(stream.start_time * stream.time_base)
-    finally:
-        container.close()
-
-
 def _assert_adjacent_frames_differ(path):
     """A re-fetch one frame early or late must never compare equal by
     accident, so every frame must differ from the next in the region
     phase 1.5 crops from (above the dialogue cutoff, the top 80%)."""
-    container = av.open(str(path))
-    try:
-        previous = None
-        count = 0
-        for frame in container.decode(video=0):
-            img = frame.to_ndarray(format="bgr24")
-            top = img[: int(img.shape[0] * 0.8)]
-            assert previous is None or not np.array_equal(previous, top), path
-            previous = top
-            count += 1
-        return count
-    finally:
-        container.close()
+    frames = decode_reference(path)
+    for (_, first), (_, second) in zip(frames, frames[1:]):
+        top = slice(0, int(first.shape[0] * 0.8))
+        assert not np.array_equal(first[top], second[top]), path
+    return len(frames)
 
 
 @pytest.fixture(scope="module")
@@ -188,13 +124,14 @@ def clips(tmp_path_factory):
     root = tmp_path_factory.mktemp("label_frame_identity")
     out = {}
     for cid, (ext, pix_fmt, codec, rate, extra) in CLIPS.items():
-        if not _have_encoder(codec):
+        if not have_encoder(codec):
             continue
         path = root / f"{cid}.{ext}"
-        _encode(path, pix_fmt, codec, rate, extra, SIZES.get(cid, "320x240"), VIDEO_START.get(cid))
+        encode(path, size=SIZES.get(cid, "320x240"), rate=rate, pix_fmt=pix_fmt, codec=codec,
+               extra=extra, frames=FRAMES, video_start=VIDEO_START.get(cid))
         expected_start = 1.5 if extra else 0.0
-        assert _start_time(path) == pytest.approx(expected_start, abs=1e-3), cid
-        assert _video_start_time(path) == pytest.approx(VIDEO_START.get(cid, expected_start), abs=1e-6), cid
+        assert start_time(path) == pytest.approx(expected_start, abs=1e-3), cid
+        assert stream_start_time(path) == pytest.approx(VIDEO_START.get(cid, expected_start), abs=1e-6), cid
         assert _assert_adjacent_frames_differ(path) == FRAMES, cid
         out[cid] = path
     return out
@@ -209,7 +146,7 @@ def _clip(clips, clip_id):
 def _scanner(path, sampling):
     # Metadata exactly as videocr.video.Video probes it (an MKV has no
     # stream frame count, so this is not the same as stream.frames).
-    with PyAVCapture(str(path)) as cap:
+    with FFmpegCapture(str(path)) as cap:
         fps = cap.get(cv2.CAP_PROP_FPS)
         num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -220,13 +157,6 @@ def _scanner(path, sampling):
         scanner.SAMPLE_INTERVAL_SECONDS = 1.0 / fps
         assert max(1, int(scanner.fps * scanner.SAMPLE_INTERVAL_SECONDS)) == 1
     return scanner
-
-
-class CpuFFmpegCapture(FFmpegNVDECCapture):
-    """The subprocess fallback, decoding on the CPU."""
-
-    def __init__(self, video_path, **kwargs):
-        super().__init__(video_path, use_gpu=False, **kwargs)
 
 
 class _WholeRegionDetector:
@@ -321,7 +251,7 @@ def _assert_phase15_matches_phase1(scanner, recorder, text_frames, phase1_frames
 def test_phase15_reads_the_frames_phase1_sampled(clips, monkeypatch, clip_id, sampling, time_start, time_end):
     scanner = _scanner(_clip(clips, clip_id), sampling)
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
 
     text_frames, phase1_frames, augmented = _run_phases(scanner, recorder, time_start, time_end)
 
@@ -338,7 +268,7 @@ def test_phase15_reads_the_frames_phase1_sampled_on_the_offset_fixture(offset_vi
     """The shared 1.5 s-offset fixture (10 frames), whole clip."""
     scanner = _scanner(offset_video, sampling)
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
 
     text_frames, phase1_frames, augmented = _run_phases(scanner, recorder, None, None)
 
@@ -346,31 +276,11 @@ def test_phase15_reads_the_frames_phase1_sampled_on_the_offset_fixture(offset_vi
     _assert_phase15_matches_phase1(scanner, recorder, text_frames, phase1_frames, augmented)
 
 
-@pytest.mark.parametrize("clip_id,sampling", _matrix(
-    [(c, sampling) for c in ["zero-start-h264", "offset-h264"] for sampling in SAMPLING],
-    fast={"offset-h264-every-frame"}))
-def test_ffmpeg_fallback_phase15_reads_the_frames_phase1_sampled(clips, monkeypatch, clip_id, sampling):
-    """The subprocess backend positions by frame ordinal and estimates PTS
-    as ordinal / fps + start time -- a different frame-index meaning from
-    PyAVCapture's. Phase 1.5 must still land on phase 1's frames through it."""
-    if not pyav_adapter.FFMPEG_AVAILABLE:
-        pytest.skip("ffmpeg CLI not available")
-    monkeypatch.setattr("videocr.label_scanner.Capture", CpuFFmpegCapture)
-    scanner = _scanner(_clip(clips, clip_id), sampling)
-    recorder = _Recorder()
-    recorder.install(monkeypatch, FFmpegNVDECCapture)
-
-    text_frames, phase1_frames, augmented = _run_phases(scanner, recorder, None, None)
-
-    assert len(text_frames) >= 3
-    _assert_phase15_matches_phase1(scanner, recorder, text_frames, phase1_frames, augmented)
-
-
 def test_phase15_never_ocrs_a_frame_other_than_the_one_asked_for(clips, monkeypatch):
     """If the capture lands on a frame with a different PTS, phase 1.5 keeps
     the box without text (as for an unreadable frame) rather than reading
     the label off the wrong frame."""
-    real_seek = PyAVCapture.seek_to_pts
+    real_seek = FFmpegCapture.seek_to_pts
 
     def seek_one_frame_late(cap, pts):
         return real_seek(cap, pts + 1.0 / cap.get(cv2.CAP_PROP_FPS))
@@ -379,7 +289,7 @@ def test_phase15_never_ocrs_a_frame_other_than_the_one_asked_for(clips, monkeypa
     text_frames = scanner._phase1_find_text_frames(_WholeRegionDetector(), None, None)
     assert len(text_frames) >= 3
 
-    monkeypatch.setattr(PyAVCapture, "seek_to_pts", seek_one_frame_late)
+    monkeypatch.setattr(FFmpegCapture, "seek_to_pts", seek_one_frame_late)
     recorder = _Recorder()
     augmented = scanner._batch_ocr_text_frames(text_frames, recorder.ocr())
 
@@ -391,13 +301,7 @@ def test_phase15_never_ocrs_a_frame_other_than_the_one_asked_for(clips, monkeypa
 # --- seek_to_pts(): the capture-level contract phase 1.5 relies on -----------
 
 def _every_frame(capture_cls, path):
-    with capture_cls(str(path)) as cap:
-        frames = []
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            frames.append((cap.get_last_pts(), frame.copy()))
+    frames = every_frame(capture_cls, path)
     assert len(frames) == FRAMES
     return frames
 
@@ -425,27 +329,16 @@ def _assert_seek_lands(cap, frames, order):
 @pytest.mark.parametrize("clip_id", _matrix(
     list(CLIPS), fast={"offset-h264", "zero-start-h265-10bit", "video-start-0.021s-mkv"}))
 def test_seek_to_pts_lands_on_exactly_that_frame(clips, clip_id):
-    frames = _every_frame(PyAVCapture, _clip(clips, clip_id))
-    with PyAVCapture(str(_clip(clips, clip_id))) as cap:
+    frames = _every_frame(FFmpegCapture, _clip(clips, clip_id))
+    with FFmpegCapture(str(_clip(clips, clip_id))) as cap:
         _assert_seek_lands(cap, frames, _visit_order(len(frames)))
-
-
-@pytest.mark.parametrize("clip_id", _matrix(["zero-start-h264", "offset-h264"], fast={"offset-h264"}))
-def test_ffmpeg_fallback_seek_to_pts_lands_on_exactly_that_frame(clips, clip_id):
-    if not pyav_adapter.FFMPEG_AVAILABLE:
-        pytest.skip("ffmpeg CLI not available")
-    frames = _every_frame(CpuFFmpegCapture, _clip(clips, clip_id))
-    with CpuFFmpegCapture(str(_clip(clips, clip_id))) as cap:
-        # Every seek restarts ffmpeg, so visit a subset, including frame 0
-        # and consecutive frames (which must not restart it).
-        _assert_seek_lands(cap, frames, _visit_order(len(frames), stride=7) + [40, 41, 42, 0])
 
 
 @pytest.mark.parametrize("clip_id", ["zero-start-h264", "offset-h264", "offset-h265-10bit"])
 def test_seek_to_pts_between_and_outside_frames(clips, clip_id):
-    frames = _every_frame(PyAVCapture, _clip(clips, clip_id))
+    frames = _every_frame(FFmpegCapture, _clip(clips, clip_id))
     pts = [p for p, _ in frames]
-    with PyAVCapture(str(_clip(clips, clip_id))) as cap:
+    with FFmpegCapture(str(_clip(clips, clip_id))) as cap:
         # Between two frames: the later one.
         assert cap.seek_to_pts((pts[30] + pts[31]) / 2)
         ok, frame = cap.read()
@@ -466,29 +359,29 @@ def test_seek_to_pts_between_and_outside_frames(clips, clip_id):
 
 
 class _LateSeekingContainer:
-    """Wraps a PyAV container so every seek lands `late_seconds` after the
-    timestamp asked for -- what a demuxer that indexes keyframes by DTS can
-    do for a target just before a keyframe's PTS."""
+    """Makes every seek of a capture land `late_seconds` after the time it
+    asked for -- what a demuxer that indexes keyframes by DTS can do for a
+    target just before a keyframe's PTS. The capture's own seek is replaced,
+    not a container's, because the decoder is a subprocess now."""
 
-    def __init__(self, container, stream, late_seconds):
-        self._container = container
-        self._late = int(round(late_seconds / stream.time_base))
+    def __init__(self, cap, late_seconds):
+        self.cap = cap
+        self.late = late_seconds
         self.seeks = []
+        self._real_start_pipe = cap._start_pipe
 
-    def __getattr__(self, name):
-        return getattr(self._container, name)
+        def start_pipe(seek_seconds):
+            self.seeks.append(seek_seconds)
+            self._real_start_pipe(seek_seconds + self.late)
 
-    def seek(self, offset, **kwargs):
-        self.seeks.append(offset)
-        return self._container.seek(offset + self._late, **kwargs)
+        cap._start_pipe = start_pipe
 
 
 @pytest.mark.parametrize("clip_id", ["zero-start-h264", "offset-h264"])
 def test_seek_to_pts_retries_from_further_back_when_a_seek_lands_late(clips, clip_id):
-    frames = _every_frame(PyAVCapture, _clip(clips, clip_id))
-    with PyAVCapture(str(_clip(clips, clip_id))) as cap:
-        late = _LateSeekingContainer(cap.container, cap.stream, late_seconds=1.5)
-        cap.container = late
+    frames = _every_frame(FFmpegCapture, _clip(clips, clip_id))
+    with FFmpegCapture(str(_clip(clips, clip_id))) as cap:
+        late = _LateSeekingContainer(cap, late_seconds=1.5)
         # Frames far enough in that the first seek lands after them.
         _assert_seek_lands(cap, frames, [60, 75, 99, 62])
         assert len(late.seeks) > 4, "the late seeks never needed a retry, so this proves nothing"
@@ -520,18 +413,18 @@ class _TwoBandDetector:
 
 
 class _Counting:
-    """Counts calls to a PyAVCapture method."""
+    """Counts calls to a FFmpegCapture method."""
 
     def __init__(self, monkeypatch, name):
         self.calls = 0
-        real = getattr(PyAVCapture, name)
+        real = getattr(FFmpegCapture, name)
         counter = self
 
         def counted(cap, *args, **kwargs):
             counter.calls += 1
             return real(cap, *args, **kwargs)
 
-        monkeypatch.setattr(PyAVCapture, name, counted)
+        monkeypatch.setattr(FFmpegCapture, name, counted)
 
 
 def _expected_crops(scanner, text_frames, phase1_frames):
@@ -562,7 +455,7 @@ def test_retained_crops_are_what_phase15_would_have_fetched(clips, monkeypatch, 
 
     scanner = _masked_scanner(_clip(clips, clip_id), sampling)
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
     retained = _RetainedCrops(budget_bytes=1 << 30)
 
     text_frames = scanner._phase1_find_text_frames(_TwoBandDetector(), None, None, retain=retained)
@@ -597,7 +490,7 @@ def test_crops_over_the_budget_are_fetched_by_pts(clips, monkeypatch, clip_id):
 
     scanner = _masked_scanner(_clip(clips, clip_id), "every-frame")
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
 
     # Size one text frame's crops, then allow a little under a third of them.
     probe = _RetainedCrops(budget_bytes=1 << 30)
@@ -646,7 +539,7 @@ def test_scan_serves_phase15_from_phase1_without_opening_the_video_again(clips, 
     monkeypatch.setattr(LabelScanner, "_phase2_group_by_position", lambda self, text_frames, progress=None: [])
 
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
     recorder.last = (None, None)
     scanner.scan(_TwoBandDetector(), recorder.ocr(), "", "", 1.5)
 
@@ -689,20 +582,6 @@ PHASE34_CLIPS = [
     "offset-h264-23.976fps",
     "offset-h264-mkv",
 ]
-
-
-def _decode_reference(path):
-    """[(PTS, BGR frame)] for every frame, from one sequential PyAV decode."""
-    container = av.open(str(path))
-    try:
-        stream = container.streams.video[0]
-        frames = [(float(frame.pts * stream.time_base), frame.to_ndarray(format="bgr24"))
-                  for frame in container.decode(stream)]
-    finally:
-        container.close()
-    pts = [p for p, _ in frames]
-    assert all(a < b for a, b in zip(pts, pts[1:])), f"{path}: PTS not strictly increasing"
-    return frames
 
 
 def _on_screen(reference, t, fps):
@@ -952,10 +831,10 @@ def _phase34_scanner(path):
 @pytest.mark.parametrize("clip_id", _matrix(PHASE34_CLIPS, PHASE34_FAST))
 def test_phase3_reads_the_frame_on_screen_at_each_sample_time(clips, monkeypatch, clip_id):
     path = _clip(clips, clip_id)
-    reference = _decode_reference(path)
+    reference = decode_reference(path)
     scanner = _phase34_scanner(path)
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
 
     result = _check_phase3(scanner, reference, recorder, monkeypatch)
 
@@ -966,10 +845,10 @@ def test_phase3_reads_the_frame_on_screen_at_each_sample_time(clips, monkeypatch
 @pytest.mark.parametrize("clip_id", _matrix(PHASE34_CLIPS, PHASE34_FAST))
 def test_phase4_reads_the_frame_on_screen_at_each_sample_time(clips, monkeypatch, clip_id):
     path = _clip(clips, clip_id)
-    reference = _decode_reference(path)
+    reference = decode_reference(path)
     scanner = _phase34_scanner(path)
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
 
     result, times = _check_phase4(scanner, reference, recorder)
 
@@ -986,10 +865,10 @@ def test_phases_3_and_4_read_the_frame_on_screen_on_the_offset_fixture(offset_vi
     check against the frame count would skip every phase 3 sample; phase 3
     must analyse one per group, and phase 4 must scan from before the first
     frame to past the last."""
-    reference = _decode_reference(offset_video)
+    reference = decode_reference(offset_video)
     scanner = _phase34_scanner(offset_video)
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
 
     phase3 = _check_phase3(scanner, reference, recorder, monkeypatch)
     phase4, times = _check_phase4(scanner, reference, recorder)
@@ -998,66 +877,6 @@ def test_phases_3_and_4_read_the_frame_on_screen_on_the_offset_fixture(offset_vi
     assert phase4.checked >= 5 * len(reference)
     assert any(t < reference[0][0] for t in times), "no phase 4 sample before the first frame"
     assert any(reference[0][0] <= t for t in times), "no phase 4 sample inside the clip"
-    phase3.assert_none()
-    phase4.assert_none()
-
-
-def _fallback_phase34_run(scanner, reference, recorder, monkeypatch, capture_cls):
-    """A reduced phase 3 and phase 4 run for a fallback backend, which restarts
-    a decoder for most seeks: groups spanning 14 frames from every 14th frame
-    (sampled at +0 and +0.5 s), and three segments."""
-    fps = scanner.fps
-    box = _region_box(scanner)
-    pts = [p for p, _ in reference]
-    readings = []
-    real_best = LabelScanner._best_single_reading
-
-    def recording_best(self, ocr_results, fallback_box):
-        readings.append([(t, text) for t, text, _, _ in ocr_results])
-        return real_best(self, ocr_results, fallback_box)
-
-    monkeypatch.setattr(LabelScanner, "_best_single_reading", recording_best)
-    monkeypatch.setattr("videocr.label_scanner.Capture", capture_cls)
-    phase3 = _Mismatches("phase 3")
-    groups = [{"first_pts": pts[i], "last_pts": pts[i + 13], "encompassing_box": box}
-              for i in range(0, len(pts) - 13, 14)]
-    ocr = _Phase3OCR(recorder)
-    scanner._phase3_ocr_and_segment(groups, ocr)
-    for group, got in zip(groups, readings):
-        for t, text in got:
-            got_pts, frame, crop = ocr.calls[int(text[len("call"):])]
-            want = reference[_on_screen(reference, t, fps)][1].copy()
-            scanner._apply_label_masks(want)
-            expected, _ = scanner._crop_cluster_region(want, box, padding=50)
-            phase3.check(t, reference, fps, got_pts, frame, crop, expected)
-
-    phase4 = _Mismatches("phase 4")
-    for start in (0.62, pts[40], pts[61] + 0.5):
-        segment = {"box": box, "text": "label", "confidence": 1.0, "start_pts": start, "end_pts": start + 0.5}
-        detector = _Phase4Detector(recorder)
-        scanner._phase4_find_timing([segment], detector)
-        _check_phase4_calls("times and bracket frames", phase4, scanner, reference, segment, detector, box)
-    return phase3, phase4
-
-
-@pytest.mark.parametrize("clip_id", _matrix(["zero-start-h264", "offset-h264"], fast={"offset-h264"}))
-def test_ffmpeg_fallback_phases_3_and_4_read_the_frame_on_screen(clips, monkeypatch, clip_id):
-    """The subprocess backend positions by frame ordinal and reports PTS as
-    ordinal / fps + container start; the frame on screen is judged by those
-    PTS and that backend's own frames. Label masks are applied to its frames
-    in place, so they must be writable."""
-    if not pyav_adapter.FFMPEG_AVAILABLE:
-        pytest.skip("ffmpeg CLI not available")
-    path = _clip(clips, clip_id)
-    reference = _every_frame(CpuFFmpegCapture, path)
-    scanner = _phase34_scanner(path)
-    assert scanner.label_mask_crops
-    recorder = _Recorder()
-    recorder.install(monkeypatch, FFmpegNVDECCapture)
-
-    phase3, phase4 = _fallback_phase34_run(scanner, reference, recorder, monkeypatch, CpuFFmpegCapture)
-
-    assert phase3.checked >= 8 and phase4.checked >= 30
     phase3.assert_none()
     phase4.assert_none()
 
@@ -1103,8 +922,8 @@ def _assert_display_time_seeks(cap, reference, fps, times, read_on=True):
 @pytest.mark.parametrize("clip_id", _matrix(PHASE34_CLIPS, PHASE34_FAST))
 def test_seek_to_display_time_reads_the_frame_on_screen(clips, clip_id):
     path = _clip(clips, clip_id)
-    reference = _decode_reference(path)
-    with PyAVCapture(str(path)) as cap:
+    reference = decode_reference(path)
+    with FFmpegCapture(str(path)) as cap:
         fps = cap.get(cv2.CAP_PROP_FPS)
         probes = _display_time_probes(reference, fps)
         # Forwards, backwards and jumping, so every seek direction is covered.
@@ -1115,8 +934,8 @@ def test_seek_to_display_time_reads_the_frame_on_screen(clips, clip_id):
 
 
 def test_seek_to_display_time_on_the_offset_fixture(offset_video):
-    reference = _decode_reference(offset_video)
-    with PyAVCapture(str(offset_video)) as cap:
+    reference = decode_reference(offset_video)
+    with FFmpegCapture(str(offset_video)) as cap:
         fps = cap.get(cv2.CAP_PROP_FPS)
         probes = _display_time_probes(reference, fps)
         _assert_display_time_seeks(cap, reference, fps, probes + probes[::-1])
@@ -1127,8 +946,8 @@ def test_seek_to_display_time_repositions_to_the_first_frame(clips, clip_id):
     """set(CAP_PROP_POS_FRAMES, 0) does not move the capture; a display time
     inside or before the first frame's duration must."""
     path = _clip(clips, clip_id)
-    reference = _decode_reference(path)
-    with PyAVCapture(str(path)) as cap:
+    reference = decode_reference(path)
+    with FFmpegCapture(str(path)) as cap:
         fps = cap.get(cv2.CAP_PROP_FPS)
         for t in (0.0, reference[0][0] + 0.5 / fps, reference[0][0] - 1.0):
             assert cap.seek_to_display_time(reference[60][0])
@@ -1142,11 +961,10 @@ def test_seek_to_display_time_repositions_to_the_first_frame(clips, clip_id):
 @pytest.mark.parametrize("clip_id", ["zero-start-h264", "video-start-0.021s-mkv", "offset-h264"])
 def test_seek_to_display_time_retries_from_further_back_when_a_seek_lands_late(clips, clip_id):
     path = _clip(clips, clip_id)
-    reference = _decode_reference(path)
-    with PyAVCapture(str(path)) as cap:
+    reference = decode_reference(path)
+    with FFmpegCapture(str(path)) as cap:
         fps = cap.get(cv2.CAP_PROP_FPS)
-        late = _LateSeekingContainer(cap.container, cap.stream, late_seconds=1.5)
-        cap.container = late
+        late = _LateSeekingContainer(cap, late_seconds=1.5)
         times = [reference[60][0], reference[75][0] + 0.5 / fps, reference[99][0], reference[62][0] - 1e-7]
         _assert_display_time_seeks(cap, reference, fps, times)
         assert len(late.seeks) > len(times), "the late seeks never needed a retry, so this proves nothing"
@@ -1159,14 +977,14 @@ def test_seeks_report_no_frame_when_the_retries_run_out(clips, monkeypatch, capl
     log a warning, and the next read() fails. That is not the end of the
     stream (seek_past_end stays False), even straight after a seek that was."""
     path = _clip(clips, "zero-start-h264")
-    reference = _decode_reference(path)
-    monkeypatch.setattr(PyAVCapture, "_SEEK_MAX_RETRIES", 1)
-    caplog.set_level(logging.WARNING, logger="videocr.pyav_adapter")
+    reference = decode_reference(path)
+    monkeypatch.setattr(ffmpeg_capture, "_SEEK_MAX_RETRIES", 1)
+    caplog.set_level(logging.WARNING, logger="videocr.ffmpeg_capture")
     target = reference[60][0]
-    with PyAVCapture(str(path)) as cap:
+    with FFmpegCapture(str(path)) as cap:
         seek = getattr(cap, seek_name)
         assert seek(reference[-1][0] + 1.0) is False and cap.seek_past_end is True
-        cap.container = _LateSeekingContainer(cap.container, cap.stream, late_seconds=1.5)
+        late = _LateSeekingContainer(cap, late_seconds=1.5)
         assert seek(target) is False
         assert cap.seek_past_end is False
         assert cap.read() == (False, None)
@@ -1174,7 +992,7 @@ def test_seeks_report_no_frame_when_the_retries_run_out(clips, monkeypatch, capl
         # Phase 1.5's fetch treats it as an unreadable frame.
         assert LabelScanner._read_frame_at_pts(cap, target) is None
         # And the capture is still usable.
-        cap.container = cap.container._container
+        cap._start_pipe = late._real_start_pipe
         assert seek(target) is True and cap.seek_past_end is False
         ok, frame = cap.read()
         assert ok and cap.get_last_pts() == target and np.array_equal(frame, reference[60][1])
@@ -1183,14 +1001,17 @@ def test_seeks_report_no_frame_when_the_retries_run_out(clips, monkeypatch, capl
 @pytest.mark.parametrize("seek_name", ["seek_to_pts", "seek_to_display_time"])
 def test_seeks_use_their_last_allowed_retry(clips, monkeypatch, seek_name):
     """With one retry allowed, a seek that lands late once and then lands
-    before its target still finds the frame."""
+    before its target still finds the frame.
+
+    The lateness has to beat the seek's own preroll, or the first attempt
+    already starts at the target and never needs the retry."""
     path = _clip(clips, "zero-start-h264")
-    reference = _decode_reference(path)
-    monkeypatch.setattr(PyAVCapture, "_SEEK_MAX_RETRIES", 1)
+    reference = decode_reference(path)
+    monkeypatch.setattr(ffmpeg_capture, "_SEEK_MAX_RETRIES", 1)
+    late_seconds = ffmpeg_capture._SEEK_PREROLL_SECONDS + 0.5
     target = reference[60][0]
-    with PyAVCapture(str(path)) as cap:
-        late = _LateSeekingContainer(cap.container, cap.stream, late_seconds=0.5)
-        cap.container = late
+    with FFmpegCapture(str(path)) as cap:
+        late = _LateSeekingContainer(cap, late_seconds=late_seconds)
         assert getattr(cap, seek_name)(target) is True
         ok, frame = cap.read()
         assert ok and cap.get_last_pts() == target and np.array_equal(frame, reference[60][1])
@@ -1202,92 +1023,16 @@ def test_seeks_past_the_end_report_no_frame_without_retrying(clips, caplog, seek
     """A seek that decodes frames up to the end of the stream without finding
     one has its answer: no frame, from that one seek, and nothing logged."""
     path = _clip(clips, "offset-h264")
-    reference = _decode_reference(path)
-    caplog.set_level(logging.WARNING, logger="videocr.pyav_adapter")
-    with PyAVCapture(str(path)) as cap:
-        counting = _LateSeekingContainer(cap.container, cap.stream, late_seconds=0.0)
-        cap.container = counting
+    reference = decode_reference(path)
+    caplog.set_level(logging.WARNING, logger="videocr.ffmpeg_capture")
+    with FFmpegCapture(str(path)) as cap:
+        counting = _LateSeekingContainer(cap, late_seconds=0.0)
         assert getattr(cap, seek_name)(reference[-1][0] + 1.0) is False
         assert cap.seek_past_end is True
         assert len(counting.seeks) == 1
         assert cap.read() == (False, None)
         assert getattr(cap, seek_name)(reference[10][0]) is True and cap.seek_past_end is False
     assert not caplog.records
-
-
-@pytest.mark.parametrize("clip_id", _matrix(["zero-start-h264", "offset-h264"], fast={"offset-h264"}))
-def test_ffmpeg_fallback_seek_to_display_time_reads_the_frame_on_screen(clips, clip_id):
-    if not pyav_adapter.FFMPEG_AVAILABLE:
-        pytest.skip("ffmpeg CLI not available")
-    path = _clip(clips, clip_id)
-    reference = _every_frame(CpuFFmpegCapture, path)
-    with CpuFFmpegCapture(str(path)) as cap:
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        probes = _display_time_probes(reference, fps)
-        # Every seek restarts ffmpeg, so visit a subset: every seventh probe
-        # both ways, the ones around time 0 and the end, and a run of
-        # consecutive frames (which must not restart it).
-        subset = probes[::7] + probes[::-7] + probes[-6:] + probes[:12] + [0.0]
-        _assert_display_time_seeks(cap, reference, fps, subset, read_on=False)
-
-
-_OPENCV_PROBE = r"""
-import json, shutil, sys
-sys.modules["av"] = None
-_which = shutil.which
-shutil.which = lambda name, *a, **k: None if name in ("ffmpeg", "ffprobe") else _which(name, *a, **k)
-import numpy as np
-from videocr import pyav_adapter
-assert pyav_adapter.Capture.__name__ == "OpenCVCapture", pyav_adapter.Capture
-path, times = sys.argv[1], json.loads(sys.argv[2])
-with pyav_adapter.Capture(path) as cap:
-    frames = []
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        frames.append((cap.get_last_pts(), frame.copy()))
-    out = []
-    for t in times:
-        found = cap.seek_to_display_time(t)
-        past_end = cap.seek_past_end
-        ok, frame = cap.read()
-        pts = cap.get_last_pts() if ok else None
-        index = next((i for i, (p, f) in enumerate(frames) if p == pts and np.array_equal(f, frame)), None) if ok else None
-        out.append([t, found, past_end, ok, index])
-    assert out[-1][2], "the probe must end past the last frame"
-    cap.seek_to_pts(frames[3][0])
-    after_pts_seek = cap.seek_past_end
-print(json.dumps({"pts": [p for p, _ in frames], "reads": out, "after_pts_seek": after_pts_seek}))
-"""
-
-
-def test_opencv_fallback_seek_to_display_time_reads_the_frame_on_screen(clips):
-    """OpenCVCapture only exists when neither PyAV nor the ffmpeg CLI does, so
-    it is exercised in a subprocess that hides both. It reports PTS as
-    (ordinal + 1) / fps; the frame on screen is judged by those. Past the last
-    frame it returns False and the next read fails, as the other backends do."""
-    path = _clip(clips, "zero-start-h264")
-    fps = 25.0
-    times = [k / fps for k in range(0, 101, 3)] + [k / fps - 2e-6 for k in range(1, 101, 5)]
-    times += [k / fps + 0.5 / fps for k in range(0, 100, 4)] + [0.0, -1.0, 0.5 / fps, 4.02, 4.04 - 2e-6, 4.04, 4.1, 5.0]
-    probe = subprocess.run([sys.executable, "-c", _OPENCV_PROBE, str(path), json.dumps(times)],
-                           capture_output=True, text=True, cwd=Path(__file__).resolve().parents[1])
-    assert probe.returncode == 0, probe.stderr[-2000:]
-    result = json.loads(probe.stdout.strip().splitlines()[-1])
-    reference = [(p, None) for p in result["pts"]]
-    assert len(reference) == FRAMES
-    wrong = []
-    for t, found, past_end, read_ok, index in result["reads"]:
-        i = _on_screen(reference, t, fps)
-        if i is None:
-            if found or not past_end or read_ok:
-                wrong.append((t, "past the end", found, past_end, read_ok))
-        elif not (found and not past_end and read_ok and index == i):
-            wrong.append((t, reference[i][0], found, past_end, read_ok, index))
-    assert not wrong, f"(time, frame on screen PTS, seek result, seek_past_end, read ok, frame index read): {wrong}"
-    assert result["after_pts_seek"] is False, "seek_to_pts() left seek_past_end set"
-    assert any(_on_screen(reference, t, fps) is None for t, *_ in result["reads"])
 
 
 # --- phase 1.5 cancellation, and detection input that retained crops share ----
@@ -1373,7 +1118,7 @@ def test_detection_sees_the_shared_frame_read_only_and_a_downscaled_copy_as_it_i
 
     scanner = _masked_scanner(_clip(clips, "zero-start-h264"), None)
     recorder = _Recorder()
-    recorder.install(monkeypatch, PyAVCapture)
+    recorder.install(monkeypatch, FFmpegCapture)
     retained = _RetainedCrops(1 << 30)
     text_frames = scanner._phase1_find_text_frames(_RecordingDetector(), None, None, retain=retained)
     assert seen and not any(seen), "detection input shared with the retained crops was writable"
@@ -1403,7 +1148,7 @@ def test_phase4_forward_scan_runs_to_the_last_frame_and_stops_past_it(clips, mon
     scan stops at the first time past the last frame instead of seeking on
     to its time bound."""
     path = _clip(clips, clip_id)
-    reference = _decode_reference(path)
+    reference = decode_reference(path)
     scanner = _phase34_scanner(path)
     fps, box = scanner.fps, _region_box(scanner)
     discovery = reference[-1][0] - 1.6
@@ -1416,8 +1161,8 @@ def test_phase4_forward_scan_runs_to_the_last_frame_and_stops_past_it(clips, mon
 
     seeks = _Counting(monkeypatch, "seek_to_display_time")
     detector = _Phase4Detector(_Recorder())
-    detector.recorder.install(monkeypatch, PyAVCapture)
-    with PyAVCapture(str(path)) as cap:
+    detector.recorder.install(monkeypatch, FFmpegCapture)
+    with FFmpegCapture(str(path)) as cap:
         end = scanner._scan_for_end(cap, detector, box, discovery, ref_box=box).present
 
     assert end == with_frame[-1]
@@ -1426,16 +1171,14 @@ def test_phase4_forward_scan_runs_to_the_last_frame_and_stops_past_it(clips, mon
 
 
 @pytest.mark.parametrize("target", ["the position before the seek", "position 0"])
-def test_ffmpeg_fallback_set_restarts_the_pipe_a_seek_past_the_end_stopped(clips, target):
+def test_set_restarts_the_pipe_a_seek_past_the_end_stopped(clips, target):
     """A display-time seek past the last frame stops the pipe. A later
     set(CAP_PROP_POS_FRAMES, n) must start it again even when n is the
     position the pipe had before, or 0 -- positions set() otherwise treats as
     "already there"."""
-    if not pyav_adapter.FFMPEG_AVAILABLE:
-        pytest.skip("ffmpeg CLI not available")
     path = _clip(clips, "zero-start-h264")
-    reference = _every_frame(CpuFFmpegCapture, path)
-    with CpuFFmpegCapture(str(path)) as cap:
+    reference = _every_frame(FFmpegCapture, path)
+    with FFmpegCapture(str(path)) as cap:
         assert cap.seek_to_display_time(reference[40][0])
         assert cap.read()[0]
         position = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
@@ -1452,17 +1195,13 @@ def test_ffmpeg_fallback_set_restarts_the_pipe_a_seek_past_the_end_stopped(clips
         assert ok and cap.get_last_pts() == reference[n][0] and np.array_equal(frame, reference[n][1])
 
 
-def test_ffmpeg_fallback_frames_are_writable_so_label_masks_apply(clips):
+def test_frames_are_writable_so_label_masks_apply(clips):
     """Every label phase blacks out mask regions in the frame it read."""
-    if not pyav_adapter.FFMPEG_AVAILABLE:
-        pytest.skip("ffmpeg CLI not available")
     path = _clip(clips, "zero-start-h264")
     scanner = _phase34_scanner(path)
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("videocr.label_scanner.Capture", CpuFFmpegCapture)
-        text_frames = scanner._phase1_find_text_frames(_WholeRegionDetector(), None, "0:01")
+    text_frames = scanner._phase1_find_text_frames(_WholeRegionDetector(), None, "0:01")
     assert len(text_frames) >= 2
-    with CpuFFmpegCapture(str(path)) as cap:
+    with FFmpegCapture(str(path)) as cap:
         ok, frame = cap.read()
         assert ok and frame.flags.writeable
         scanner._apply_label_masks(frame)
@@ -1472,42 +1211,40 @@ def test_ffmpeg_fallback_frames_are_writable_so_label_masks_apply(clips):
         assert ok and following[y:y + h, x:x + w].any(), "masking one frame changed the next"
 
 
-class _NothingDecodingContainer(_LateSeekingContainer):
-    """Seeks normally, but decodes nothing after them -- what a seek that
-    fails to find its keyframe looks like to the capture."""
-
-    def decode(self, *args, **kwargs):
-        return iter(())
-
-
 class _ExhaustingSeeks:
     """Makes chosen seek_to_display_time() calls run out of retries for real:
-    for those calls no retry is allowed and the container decodes nothing
-    after the seek, so the seek takes its retries-exhausted path (and logs)
-    mid-stream, wherever the time is."""
+    for those calls no retry is allowed and every seek lands after its target,
+    so the seek takes its retries-exhausted path (and logs) mid-stream,
+    wherever the time is."""
 
     def __init__(self, monkeypatch, fail):
         self.fail = fail  # t -> whether this call should exhaust
         self.calls = []   # (t, result)
-        real = PyAVCapture.seek_to_display_time
+        real = FFmpegCapture.seek_to_display_time
+        budget = ffmpeg_capture._SEEK_MAX_RETRIES
         exhausting = self
 
         def seek(cap, t):
             if not exhausting.fail(t):
                 result = real(cap, t)
             else:
-                container = cap.container
-                cap.container = _NothingDecodingContainer(container, cap.stream, late_seconds=0.0)
-                cap._SEEK_MAX_RETRIES = 0
+                late = _LateSeekingContainer(cap, late_seconds=1.5)
+                ffmpeg_capture._SEEK_MAX_RETRIES = 0
+                # Reading the live pipe on would answer this time without a
+                # seek at all, which is not what this test is about: force a
+                # real seek so it can land late and exhaust its retries.
+                forward = cap._can_read_forward
+                cap._can_read_forward = lambda target: False
                 try:
                     result = real(cap, t)
                 finally:
-                    cap.container = container
-                    del cap._SEEK_MAX_RETRIES
+                    cap._can_read_forward = forward
+                    cap._start_pipe = late._real_start_pipe
+                    ffmpeg_capture._SEEK_MAX_RETRIES = budget
             exhausting.calls.append((t, result))
             return result
 
-        monkeypatch.setattr(PyAVCapture, "seek_to_display_time", seek)
+        monkeypatch.setattr(FFmpegCapture, "seek_to_display_time", seek)
 
 
 def _scan_for_end_with(scanner, path, discovery):
@@ -1521,7 +1258,7 @@ def _scan_for_end_with(scanner, path, discovery):
             return super().predict(frame)
 
     box = _region_box(scanner)
-    with PyAVCapture(str(path)) as cap:
+    with FFmpegCapture(str(path)) as cap:
         end = scanner._scan_for_end(cap, _Counting(), box, discovery, ref_box=box).present
     return end, len(detections)
 
@@ -1539,7 +1276,7 @@ def test_phase4_forward_scan_skips_a_seek_that_runs_out_of_retries(clips, monkey
     assert clean_end > discovery + 10 * scanner.TIMING_SCAN_INTERVAL
 
     failing = [discovery + (3 + i) * scanner.TIMING_SCAN_INTERVAL for i in range(failures)]
-    caplog.set_level(logging.WARNING, logger="videocr.pyav_adapter")
+    caplog.set_level(logging.WARNING, logger="videocr.ffmpeg_capture")
     seeks = _ExhaustingSeeks(monkeypatch, lambda t: any(abs(t - f) < 1e-9 for f in failing))
     end, detections = _scan_for_end_with(scanner, path, discovery)
 
@@ -1551,7 +1288,8 @@ def test_phase4_forward_scan_skips_a_seek_that_runs_out_of_retries(clips, monkey
 
 def test_phase4_forward_scan_ends_at_its_time_bound_when_every_seek_runs_out_of_retries(clips, monkeypatch, caplog):
     """Seeks that keep failing never end the label early, and the scan still
-    stops: at its time bound, having tried each time once."""
+    stops: at its time bound, or as soon as a failing seek lands past the last
+    frame (which is what the scan reads as the end of the stream)."""
     path = _clip(clips, "zero-start-h264")
     scanner = _phase34_scanner(path)
     discovery, step = 0.5, scanner.TIMING_SCAN_INTERVAL
@@ -1559,12 +1297,18 @@ def test_phase4_forward_scan_ends_at_its_time_bound_when_every_seek_runs_out_of_
     while t <= discovery + scanner.TIMING_SCAN_MAX_DURATION:
         times.append(t)
         t += step
-    caplog.set_level(logging.WARNING, logger="videocr.pyav_adapter")
+    caplog.set_level(logging.WARNING, logger="videocr.ffmpeg_capture")
     seeks = _ExhaustingSeeks(monkeypatch, lambda t: True)
 
     end, detections = _scan_for_end_with(scanner, path, discovery)
 
     assert all(result is False for _, result in seeks.calls)
-    assert sum(r.levelno == logging.WARNING for r in caplog.records) == len(seeks.calls)
-    assert [t for t, _ in seeks.calls] == times, "the scan did not try each time up to its bound exactly once"
+    tried = [t for t, _ in seeks.calls]
+    assert tried == times[:len(tried)], "the scan did not try each time once, in order"
+    assert 0 < len(tried) <= len(times), "the scan never stopped"
+    assert len(tried) == len(times) or len(tried) < len(times), "the scan ran past its time bound"
+    # Every call that got as far as a pipe logs, except a time the capture can
+    # answer from the frame it just handed out: that one never seeks, so it has
+    # nothing to warn about and must not be counted as a failed seek.
+    assert sum(r.levelno == logging.WARNING for r in caplog.records) >= len(seeks.calls) - 1
     assert end == discovery and detections == 0

@@ -112,7 +112,12 @@ pytestmark = pytest.mark.timeout(120)
 
 WAIT = 10.0
 
-PROJECT_DIR = "/proj"
+# A project folder as os.path.join builds it: "/proj" is not absolute on
+# Windows and joins with a backslash, and these jobs are tested against the
+# path they were handed rather than a POSIX spelling of it.
+PROJECT_DIR = os.path.join(os.sep, "proj")
+A_MP4 = os.path.join(PROJECT_DIR, "a.mp4")
+B_MKV = os.path.join(PROJECT_DIR, "b.mkv")
 NAMES = ("a.mp4", "b.mp4", "c.mp4")
 
 OLD_BOX = (300, 800, 1300, 60)
@@ -1871,7 +1876,7 @@ def test_crop_job_calls_detect_crop_with_the_documented_arguments(monkeypatch, f
 
     assert len(fake.calls) == 1
     call = fake.calls[0]
-    assert call["video_path"] == "/proj/a.mp4"
+    assert call["video_path"] == A_MP4
     assert call["duration_sec"] == 1418.0
     assert call["consensus"] == [(0.72, 0.05), (0.73, 0.049)]
     assert call["settings"] == {"crop_width_fraction": 0.8, "crop_vertical_padding": 0.01,
@@ -1959,7 +1964,7 @@ def test_brightness_job_calls_detect_brightness_with_the_documented_arguments(mo
     out = job.run(ctx)
 
     call = fake.calls[0]
-    assert call["video_path"] == "/proj/a.mp4"
+    assert call["video_path"] == A_MP4
     assert tuple(call["crop_box"]) == NEW_BOX
     assert [tuple(pair) for pair in call["time_ranges"]] == [("02:33", "21:20"), ("22:00", None)]
     assert call["folder_plateau"] == (190, 235)
@@ -2077,7 +2082,7 @@ def test_lines_job_calls_sample_lines_with_the_documented_arguments(monkeypatch,
 
     assert len(fake.calls) == 1
     call = fake.calls[0]
-    assert call["video_path"] == "/proj/a.mp4"
+    assert call["video_path"] == A_MP4
     assert tuple(call["crop_box"]) == NEW_BOX
     assert [tuple(pair) for pair in call["time_ranges"]] == [("02:33", "21:20"), ("22:00", None)]
     assert [tuple(span) for span in call["speech"]] == [(10.0, 12.5), (30.0, 31.0)]
@@ -2186,7 +2191,7 @@ def test_ranges_job_calls_analyse_detailed_with_the_documented_arguments(monkeyp
     out = job.run(ctx)
 
     call = fake.calls[0]
-    assert list(call["files"]) == [RangesFile("a.mp4", "/proj/a.mp4"), RangesFile("b.mkv", "/proj/b.mkv")]
+    assert list(call["files"]) == [RangesFile("a.mp4", A_MP4), RangesFile("b.mkv", B_MKV)]
     assert call["cfg"] == RangesConfig(match=MatchConfig(min_length_sec=45.0), merge_repeating_silences=True)
     assert call["cache_dir"] == ranges_pipeline.default_cache_dir(PROJECT_DIR)
     assert call["workers"] == ranges_pipeline.DEFAULT_WORKERS
@@ -2225,7 +2230,7 @@ def test_audio_profile_job_calls_audio_profile_with_the_documented_arguments(mon
     out = job.run(ctx)
 
     call = fake.calls[0]
-    assert call["video_path"] == "/proj/a.mp4"
+    assert call["video_path"] == A_MP4
     assert call["duration_sec"] == 1418.0
     cancel = call["cancel_check"]
     assert cancel() is False
@@ -2277,7 +2282,7 @@ def test_thumbnail_job_grabs_one_full_frame_at_thumbnail_height(monkeypatch):
 
     out = job.run(_ctx(job))
 
-    assert fake.calls == [{"video_path": "/proj/a.mp4", "times": [407.4], "band_frac": 1.0,
+    assert fake.calls == [{"video_path": A_MP4, "times": [407.4], "band_frac": 1.0,
                            "target_height": THUMB_HEIGHT}]
     assert isinstance(out, ThumbnailResult)
     assert (out.file, out.time) == ("a.mp4", 407.4)

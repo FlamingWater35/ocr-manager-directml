@@ -8,9 +8,11 @@ import sys
 import threading
 import warnings
 import yaml
-from importlib.metadata import version
-from packaging import version as version_parser
 
+# PaddleOCR's 3.x result format (`rec_texts`/`rec_scores`/`rec_polys`) is what
+# this project has always spoken, and RapidOCR's adapter produces it directly,
+# so the conversion is now unconditional. The name is kept because every call
+# site and test still asks `utils.needs_conversion()`.
 PADDLEOCR_FORMAT_CHANGE_VERSION = "3.0.3"
 
 
@@ -31,8 +33,11 @@ def suppress_output():
     sys.stdout = io.StringIO()
     sys.stderr = io.StringIO()
 
-    # Suppress paddle/paddleocr loggers
+    # Suppress the engine's own loggers: RapidOCR installs a colorlog handler
+    # on "RapidOCR" that writes to stderr with propagate=False, so the level
+    # has to be raised on that exact name.
     loggers_to_suppress = [
+        "RapidOCR",
         "ppocr",
         "paddle",
         "paddleocr",
@@ -124,8 +129,12 @@ def format_ass_dialogue(start_time: str, end_time: str, text: str) -> str:
 
 # check if format conversion is required
 def needs_conversion():
-    current_version = version("paddleocr")
-    return version_parser.parse(current_version) >= version_parser.parse(PADDLEOCR_FORMAT_CHANGE_VERSION)
+    """Always True: the engine adapter emits PaddleOCR 3.x's result shape.
+
+    Kept as a function (rather than a constant) because `videocr/video.py`
+    branches on it and several tests monkeypatch it.
+    """
+    return True
 
 
 # convert returned format from paddleocr to old format
@@ -170,75 +179,55 @@ _cuda_lock = threading.Lock()
 
 
 def _paddle_cuda_usable() -> bool:
-    """True when the installed paddle is compiled with CUDA and sees a CUDA
-    device. Checked once per process (paddle is imported for it)."""
-    global _cuda_usable
-    with _cuda_lock:
-        if _cuda_usable is None:
-            try:
-                import paddle
-                _cuda_usable = bool(paddle.device.is_compiled_with_cuda()) and \
-                    paddle.device.cuda.device_count() > 0
-            except Exception as exc:        # a broken or CPU-only paddle: run on the CPU
-                logging.getLogger(__name__).warning("CUDA check failed, using the CPU: %s", exc)
-                _cuda_usable = False
-            if not _cuda_usable:
-                logging.getLogger(__name__).info("paddle has no usable CUDA device; OCR runs on the CPU")
-        return _cuda_usable
+    """Kept for the tests that pin the old name; it now reports DirectML.
+
+    The PaddleOCR CUDA check is gone with PaddleOCR itself. `resolve_device`
+    asks `videocr.ocr_engine.dml_available()` instead, which is a provider
+    list lookup rather than an import of a 700 MB framework.
+    """
+    from . import ocr_engine
+
+    return ocr_engine.dml_available()
 
 
 def resolve_device(use_gpu) -> str:
-    """The paddle device an engine is built on: "gpu" when the folder asks
-    for the GPU AND this paddle can use one, else "cpu". On a machine where
-    the GPU works this is exactly the old `"gpu" if use_gpu else "cpu"`; a
-    CPU-only paddle (a CPU engine install, macOS) no longer fails every
-    engine build just because `use_gpu` defaults to True."""
+    """The device an engine is built on: "gpu" when the folder asks for the
+    GPU AND this machine has DirectML, else "cpu". On a machine where DirectML
+    works this is exactly the old `"gpu" if use_gpu else "cpu"`; a machine
+    without it no longer fails every engine build just because `use_gpu`
+    defaults to True."""
     if not use_gpu:
         return "cpu"
     return "gpu" if _paddle_cuda_usable() else "cpu"
 
 
 def device_kwargs(device: str) -> dict:
-    """The engine constructor's device arguments. On the CPU, oneDNN
-    (mkldnn) is turned off: paddle 3.3.0's oneDNN path fails every
-    PP-OCRv5 prediction ("ConvertPirAttribute2RuntimeAttribute not support
-    [pir::ArrayAttribute<pir::DoubleAttribute>]"). On the GPU the arguments
-    are exactly what they always were (`enable_mkldnn` only affects the CPU
-    anyway), so GPU output is unchanged."""
-    if device == "cpu":
-        return {"device": "cpu", "enable_mkldnn": False}
+    """The engine constructor's device arguments.
+
+    Kept so the settings and tests that describe a device still have one
+    place to read it; RapidOCR takes DirectML through its `params` dict
+    instead, so this only names the device.
+    """
     return {"device": device}
 
 
 def create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu):
-    """Create a full PaddleOCR engine (detection + recognition)."""
-    from paddleocr import PaddleOCR
-    with suppress_output():
-        device = resolve_device(use_gpu)
-        return PaddleOCR(
-            lang=lang,
-            text_recognition_model_dir=rec_model_dir,
-            text_detection_model_dir=det_model_dir,
-            text_detection_model_name=get_model_name_from_dir(det_model_dir),
-            text_recognition_model_name=get_model_name_from_dir(rec_model_dir),
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-            **device_kwargs(device),
-        )
+    """Create a full OCR engine (detection + recognition).
+
+    Delegates to `videocr.ocr_engine`, which wraps RapidOCR on ONNX Runtime
+    (DirectML when available). `det_model_dir`/`rec_model_dir` are accepted for
+    call-site compatibility and ignored: RapidOCR resolves its own models.
+    """
+    from . import ocr_engine
+
+    return ocr_engine.create_ocr_engine(lang, det_model_dir, rec_model_dir, use_gpu)
 
 
 def create_detection_engine(det_model_dir, use_gpu):
-    """Create a detection-only engine for label scanning (PaddleOCR 3.x TextDetection)."""
-    from paddleocr import TextDetection
-    model_name = get_model_name_from_dir(det_model_dir) or "PP-OCRv5_server_det"
-    with suppress_output():
-        device = resolve_device(use_gpu)
-        return TextDetection(
-            model_name=model_name,
-            model_dir=det_model_dir,
-            **device_kwargs(device),
-        )
+    """Create a detection-only engine for label scanning."""
+    from . import ocr_engine
+
+    return ocr_engine.create_detection_engine(det_model_dir, use_gpu)
 
 
 def format_ass_header(play_res_x: int, play_res_y: int, include_label_style: bool = False) -> str:
