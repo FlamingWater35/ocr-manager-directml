@@ -44,6 +44,7 @@ Fonts/
 *.eng.ass
 *.md
 !README.md
+!AGENTS.md
 
 # OS
 .DS_Store
