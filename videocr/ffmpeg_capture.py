@@ -53,6 +53,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from core import decode_budget
 from core import ffmpeg as ffmpeg_tool
 from core.proc import TEXT_ENCODING, hidden_child
 
@@ -516,6 +517,12 @@ class FFmpegCapture:
         cmd = [ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-nostats", "-nostdin", "-loglevel", "info"]
         if self.use_gpu:
             cmd += ["-hwaccel", "d3d11va"]
+        # Before -i, so it caps the DECODER; after -i it would only cap the
+        # muxer, which measured no CPU change at all. ffmpeg's default is one
+        # thread per core, which a 4K 10-bit stream turns into three cores busy
+        # for a decode four threads do in two at the same frame rate -- see
+        # core/decode_budget.py.
+        cmd += ["-threads", str(decode_budget.stream_threads())]
         # -copyts keeps the container's timestamps instead of rebasing the
         # first frame to 0; without it the PTS read below would be relative to
         # the seek point and useless for subtitle timing.

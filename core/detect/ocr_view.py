@@ -31,6 +31,7 @@ from contextlib import ExitStack
 import cv2
 import numpy as np
 
+from core import decode_budget
 from videocr.ffmpeg_capture import DECODE_TARGET_HEIGHT, Capture
 from videocr.video import MIN_CROP_HEIGHT, MIN_LAPLACIAN_VARIANCE, TARGET_VIDEO_HEIGHT
 
@@ -43,8 +44,11 @@ logger = logging.getLogger(__name__)
 FETCH_ERRORS = (OSError, ValueError, EOFError)
 
 SAMPLE_EDGE_EXCLUDE_FRAC = 0.10   # without keep ranges, skip the first/last 10%
-SAMPLE_WORKERS = 4                # capture containers opened in parallel
-
+# Capture containers opened in parallel. Each one is a full ffmpeg pipe, so
+# this is also the burst these samples can cause; core/decode_budget.slot()
+# charges each of them to the shared budget, which is what actually caps how
+# many run at once.
+SAMPLE_WORKERS = 4
 
 class _OpenCapture:
     """`with _OpenCapture(path, **kwargs) as cap:` is `with Capture(path,
@@ -305,7 +309,12 @@ def grab_ocr_strips_at(video_path: str, crop_box, times: list[float]) -> list[tu
         # handled per frame in read_chunk, and anything else raised there is a
         # bug to surface, not a capture failure to log away. A failure to
         # CLOSE it is logged by _OpenCapture: the chunk's frames are read.
-        with ExitStack() as stack:
+        #
+        # The whole chunk holds one decode slot: it is one ffmpeg pipe for as
+        # long as it runs, so it must be charged to the budget the same way a
+        # one-shot grab is, or four of these plus a probe batch would burst
+        # past it.
+        with decode_budget.slot(), ExitStack() as stack:
             try:
                 cap = stack.enter_context(
                     _OpenCapture(video_path, decode_target_height=decode_height, crop_rect=graph_crop))

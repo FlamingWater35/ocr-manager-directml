@@ -35,6 +35,7 @@ import time
 import traceback
 
 from app.bootstrap import Boot
+from core import decode_budget
 from core import ffmpeg as ffmpeg_tool
 from core.proc import TEXT_ENCODING, hidden_child
 from core.runtime import logsetup
@@ -164,6 +165,7 @@ def self_test(boot: Boot) -> int:
         "imports": {"count": len(imported), "failed": failed},
         "tools": tools,
         "decoder": decoder_report,
+        "decode_budget": decode_budget.describe(),
         "engine": engine_report(boot),
         "logging": logsetup.describe(),
     }

@@ -60,6 +60,7 @@ from statistics import median
 
 import numpy as np
 
+from core import decode_budget
 from core import ffmpeg as ffmpeg_tool
 from core.detect import vad
 from core.detect.flags import compose_flag as _compose_flag
@@ -144,7 +145,12 @@ WATERMARK_MIN_SPAN_SEC = _label_max_duration_default() + WATERMARK_SPAN_MARGIN_S
 
 # Frame grab defaults.
 TARGET_HEIGHT = 480
-GRAB_POOL_SIZE = 10  # max concurrent ffmpeg subprocesses inside grab_frames()
+# Max threads inside grab_frames(). The number of ffmpeg processes running at
+# once is no longer decided here: core/decode_budget.slot() charges every grab
+# to one shared budget, so this pool size only decides how many threads of
+# THIS batch wait on it. Ten keeps one batch moving without asking the budget
+# for more than it has.
+GRAB_POOL_SIZE = 10
 
 # detect_crop() orchestration.
 PROBE_BATCH_SIZE = 5          # probes fetched per batch before re-checking the stop condition
@@ -563,13 +569,18 @@ def _grab_one(video_path: str, t: float, crop_w: int, crop_h: int, crop_x: int,
     """
     cmd = [
         *ffmpeg_tool.ffmpeg_argv("-hide_banner", "-loglevel", "error"),
+        # A grab decodes one frame and exits, so its thread pool is mostly
+        # startup cost: two threads measured the same wall time for a seventh
+        # less CPU. See core/decode_budget.py.
+        "-threads", str(decode_budget.grab_threads()),
         "-ss", f"{_seek_seconds(t):.3f}", "-i", video_path,
         "-frames:v", "1",
         "-vf", _probe_filters(crop_w, crop_h, crop_x, crop_y, out_w, out_h, transfer),
         "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1",
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, check=False, timeout=30, **hidden_child())
+        with decode_budget.slot():
+            result = subprocess.run(cmd, capture_output=True, check=False, timeout=30, **hidden_child())
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning(
             "grab_frames: failed to grab t=%.3f from %s (%s: %s)",
