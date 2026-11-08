@@ -91,8 +91,8 @@ DELETE_RANGE_TEXT = "Delete range"       # the track's right-click menu, on a ke
 ADD_HERE_TEXT = "Add range here"         # ... and on a skip span
 EDIT_NOTE = "Drag an edge to move it. Right-click a range to delete it, or a skipped block to add one there."
 KEEP_KEY = "Keep"
-WHOLE_FILE_VALUE = "whole file"
-LANE_LABEL = "speech"
+WHOLE_FILE_VALUE = "Whole file"
+LANE_LABEL = "Speech"
 SKIP_LABEL = "SKIP"                   # a skip span no detected block explains ...
 SKIP_KIND = "skipped"                 # ... and how its warning sentence names it
 
@@ -147,7 +147,7 @@ LABEL_PADDING_Y = tokens.px(3)
 LABEL_GAP = tokens.px(6)              # between a keep's label and its inline length
 LABEL_MIN_WIDTH = tokens.px(26)       # a block narrower than this is left unlabelled
 SUB_LINE_GAP = tokens.px(2)           # the sub-line's margin-top
-LANE_LABEL_INSET = tokens.px(4)       # "speech", off the lane's left edge
+LANE_LABEL_INSET = tokens.px(4)       # "Speech", off the lane's left edge
 MARK_ALPHA = 0.75                     # a crop sample's tick, compact mode ...
 MARK_HEIGHT = tokens.px(6)            # ... 6 px along the bottom, as workbench-hifi's `.marks s`
 MARK_WIDTH = tokens.px(1)
@@ -172,9 +172,11 @@ def _alpha(colour: str, alpha: float) -> QColor:
 def _font(size: float) -> QFont:
     font = QFont()
     font.setFamilies(tokens.FONT_STACK)
-    # px -> pt, as the other views do; floored at 1pt because Qt warns
-    # ("QFont::setPointSize: Point size <= 0") and ignores smaller sizes.
-    font.setPointSizeF(max(1.0, size * 0.75))
+    # px -> pt, as the other views do (see tokens.font_pt); floored at 1pt
+    # because Qt warns "QFont::setPointSize: Point size <= 0" and ignores
+    # smaller sizes, and never pixel-sized because that reports
+    # pointSize() == -1, the same warning after any Qt round trip.
+    font.setPointSizeF(tokens.font_pt(size))
     return font
 
 
@@ -301,7 +303,7 @@ def header_text(name: str, duration: float, others) -> str:
     known = sorted(float(value) for value in others if value and float(value) > 0)
     if known:
         low, high = format_duration(known[0]), format_duration(known[-1])
-        parts.append(f"other episodes {low}" if low == high else f"other episodes {low} – {high}")
+        parts.append(f"Other episodes {low}" if low == high else f"Other episodes {low} – {high}")
     return " · ".join(parts)
 
 
@@ -448,7 +450,7 @@ class Timeline(QWidget):
         return list(self._marks)
 
     def lane_label(self) -> str:
-        """"speech" -- but not in compact mode, which carries no label but a
+        """"Speech" -- but not in compact mode, which carries no label but a
         block's kind (ruling B5)."""
         return LANE_LABEL if self.editable else ""
 
@@ -903,7 +905,7 @@ def _block_detail(block: dict | None) -> str:
         score = round(float(block["score"]) * 100)
     except (KeyError, TypeError, ValueError):
         return ""
-    return f"matches {others} episodes · {score}%"
+    return f"Matches {others} episodes · {score}%"
 
 
 # --------------------------------------------------------------------------
@@ -991,7 +993,7 @@ class RangesInspectorPanel(Section):
         nothing to remove.
 
         `unreadable`: the file stores a range the timeline could not place
-        (`read_ranges`), so "whole file" would be a lie -- there is something
+        (`read_ranges`), so "Whole file" would be a lie -- there is something
         stored, and the page's warn line names it."""
         values = [f"{format_duration(start)} → {format_duration(end)}" for start, end in keeps]
         whole_file = duration > 0 and not unreadable

@@ -66,6 +66,28 @@ def pt(value: float) -> float:
     return value * UI_SCALE
 
 
+# Qt fixes logical DPI at 96 on every platform (scaling rides on the
+# device pixel ratio instead), so one point is always 4/3 of a pixel.
+PT_PER_PX = 0.75
+
+
+def font_pt(pixels: float) -> float:
+    """A scaled pixel size as the point size a `QFont` should be given.
+
+    Every font the app builds is set in POINTS, never pixels, and this is the
+    one conversion. A pixel-sized `QFont` reports `pointSize() == -1`, and any
+    later round trip through Qt -- the stylesheet engine re-resolving a
+    widget's font, a `QFontDialog`, a native widget that reads the point size
+    back -- then calls `setPointSize(-1)` and Qt logs
+    `QFont::setPointSize: Point size <= 0 (-1), must be greater than 0`.
+
+    Floored at 1 pt because Qt ignores anything smaller (and warns about it):
+    a tiny or unscaled token must still give a usable font. The values are
+    metrics-identical to the pixel sizes they replace -- 14 px and 10.5 pt
+    both measure 19 px high at Qt's 96 dpi."""
+    return max(1.0, pixels * PT_PER_PX)
+
+
 # --------------------------------------------------------------------------
 # Colour tokens (ui-spec.md §2.1, the `.hf { --bg:...; }` custom-property
 # block)

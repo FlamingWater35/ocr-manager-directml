@@ -46,12 +46,12 @@ NO_LINES_TEXT = "No subtitles recognised in this window — check crop and brigh
 # "Apply to all files" (the Crop and Brightness panels): the one question it asks.
 APPLY_ALL_TITLE = "Apply to all files"
 RUNNING_TEXT = "Running on {window}…"
-RUNNING_UNKNOWN_TEXT = "running…"            # defensive: run_proof refuses an unknown duration
+RUNNING_UNKNOWN_TEXT = "Running…"            # defensive: run_proof refuses an unknown duration
 HINT_TEXT = "↻ Re-detect the other {count} using this {what} as a hint"
 # Count 0: the offer is still shown, disabled, so the user can see there is
 # nothing else to re-detect -- but "the other 0" reads as a template with a
 # hole in it, and there is no ↻ to press.
-HINT_NONE_TEXT = "no other file to re-detect with this {what}"
+HINT_NONE_TEXT = "No other file to re-detect with this {what}"
 REDETECTING_TEXT = "Re-detecting {count} files…"
 HINT_KINDS = ("crop", "brightness")          # the two kinds ruling C3 offers, in inspector order
 

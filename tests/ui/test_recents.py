@@ -85,10 +85,10 @@ def test_an_episode_goes_by_its_file_name_and_lives_in_its_folder():
 
 
 @pytest.mark.parametrize(("seconds", "text"), [
-    (-5, "just now"), (0, "just now"), (59, "just now"),
+    (-5, "Just now"), (0, "Just now"), (59, "Just now"),
     (60, "1 min ago"), (59 * 60, "59 min ago"),
     (3600, "1 h ago"), (23 * 3600, "23 h ago"),
-    (DAY, "yesterday"), (2 * DAY, "2 days ago"), (6 * DAY, "6 days ago"),
+    (DAY, "Yesterday"), (2 * DAY, "2 days ago"), (6 * DAY, "6 days ago"),
     (7 * DAY, "1 week ago"), (34 * DAY, "4 weeks ago"),
     (35 * DAY, "1 month ago"), (359 * DAY, "11 months ago"),
     (360 * DAY, "1 year ago"), (800 * DAY, "2 years ago"),
@@ -100,10 +100,10 @@ def test_time_ago(seconds, text):
 def test_the_detail_counts_a_folders_episodes_and_says_when():
     now = 1_000_000.0
     assert recents.detail(folder("/a", now - 7200, 12), now) == "12 episodes · 2 h ago"
-    assert recents.detail(folder("/a", now, 1), now) == "1 episode · just now"
-    assert recents.detail(folder("/a", now, 0), now) == "no episodes · just now"
-    assert recents.detail(folder("/a", now, None), now) == "just now"
-    assert recents.detail(RecentEntry("/a/x.mkv", EPISODE, now - DAY), now) == "yesterday"
+    assert recents.detail(folder("/a", now, 1), now) == "1 episode · Just now"
+    assert recents.detail(folder("/a", now, 0), now) == "No episodes · Just now"
+    assert recents.detail(folder("/a", now, None), now) == "Just now"
+    assert recents.detail(RecentEntry("/a/x.mkv", EPISODE, now - DAY), now) == "Yesterday"
 
 
 def test_an_entry_exists_only_as_what_it_was(tmp_path):

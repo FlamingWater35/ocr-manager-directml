@@ -117,7 +117,7 @@ def time_ago(seconds: float) -> str:
     "2 weeks ago", "3 months ago", "1 year ago"."""
     seconds = max(0, int(seconds))
     if seconds < 60:
-        return "just now"
+        return "Just now"
     minutes = seconds // 60
     if minutes < 60:
         return f"{minutes} min ago"
@@ -126,7 +126,7 @@ def time_ago(seconds: float) -> str:
         return f"{hours} h ago"
     days = hours // 24
     if days == 1:
-        return "yesterday"
+        return "Yesterday"
     if days < 7:
         return f"{days} days ago"
     if days // 7 < 5:
@@ -142,5 +142,5 @@ def detail(entry: RecentEntry, now: float) -> str:
     when = time_ago(now - entry.opened)
     if entry.kind != FOLDER or entry.count is None:
         return when
-    episodes = "no episodes" if entry.count == 0 else _count(entry.count, "episode")
+    episodes = "No episodes" if entry.count == 0 else _count(entry.count, "episode")
     return f"{episodes} · {when}"

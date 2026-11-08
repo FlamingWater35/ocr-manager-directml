@@ -43,7 +43,15 @@ from app.views.deferred import Deferred
 from app.widgets.base import Button, Chip, ElidedLabel, SegmentedControl
 
 APP_NAME = "OCR Manager"
-PAUSE_TEXT, RESUME_TEXT, STOP_TEXT = "⏸ pause", "▶ resume", "■ stop"
+PAUSE_TEXT, RESUME_TEXT, STOP_TEXT = "⏸ Pause", "▶ Resume", "■ Stop"
+
+
+# The chip labels: a count leads each one ("5 Reviewed"), so the noun is a
+# label rather than the continuation of a sentence -- and `tests/ui` compares
+# against these rather than repeating the words.
+CHIP_REVIEWED = "Reviewed"
+CHIP_NEEDS_YOU = "Needs you"
+CHIP_DETECTING = "Detecting"
 STATUS_REFRESH_MS = 1000
 FOLDER_SETTINGS_TEXT, EPISODE_SETTINGS_TEXT = "⚙ Folder settings", "⚙ Settings"
 EPISODE_START_TEXT = "▶ Start OCR"
@@ -115,9 +123,9 @@ class TopBar(QWidget):
         chips = QHBoxLayout(self._chips)
         chips.setContentsMargins(tokens.px(6), 0, 0, 0)
         chips.setSpacing(tokens.px(6))
-        self.reviewed_chip = Chip("ok", 0, "reviewed")
-        self.needs_chip = Chip("warn", 0, "needs you")
-        self.detecting_chip = Chip("idle", 0, "detecting")
+        self.reviewed_chip = Chip("ok", 0, CHIP_REVIEWED)
+        self.needs_chip = Chip("warn", 0, CHIP_NEEDS_YOU)
+        self.detecting_chip = Chip("idle", 0, CHIP_DETECTING)
         for chip in (self.reviewed_chip, self.needs_chip, self.detecting_chip):
             chips.addWidget(chip)
         layout.addWidget(self._chips)

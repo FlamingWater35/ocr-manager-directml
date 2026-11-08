@@ -128,6 +128,8 @@ def configure(path: Path | None = None, *, level: int | None = None,
 
     written = None
     target = log_file() if path is None else Path(path)
+    handler = None
+    rolled = False
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         rolled = roll_if_large(target)
@@ -137,9 +139,21 @@ def configure(path: Path | None = None, *, level: int | None = None,
         handler.setFormatter(formatter)
         setattr(handler, _HANDLER_MARK, "file")
         root.addHandler(handler)
+        # The handler is delayed, so the file is opened by the first record --
+        # which is this one. Emitting inside the try keeps the promise that a
+        # log file we cannot write never stops the app: without it the open
+        # happens later, in whichever thread logs first, and raises there.
+        logging.getLogger(__name__).debug("Logging at %s to %s%s%s", level_name(level), target,
+                                          " (console too)" if console else " (file only)",
+                                          " after rolling the old one to .1" if rolled else "")
         written = target
     except OSError:
-        rolled = False
+        if handler is not None:
+            root.removeHandler(handler)
+            try:
+                handler.close()
+            except Exception:                               # noqa: BLE001 - closing must not raise
+                pass
         written = None
 
     if console:
@@ -148,11 +162,6 @@ def configure(path: Path | None = None, *, level: int | None = None,
         stream.setFormatter(formatter)
         setattr(stream, _HANDLER_MARK, "console")
         root.addHandler(stream)
-
-    if written is not None:
-        logging.getLogger(__name__).debug("Logging at %s to %s%s%s", level_name(level), written,
-                                          " (console too)" if console else " (file only)",
-                                          " after rolling the old one to .1" if rolled else "")
     return written
 
 

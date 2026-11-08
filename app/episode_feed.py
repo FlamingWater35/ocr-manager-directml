@@ -97,8 +97,8 @@ def estimate_words(seconds: float) -> str:
     """The Preparing screen's "about 6 min" (minutes rounded up), or "under a
     minute"."""
     if seconds < 60:
-        return "under a minute"
-    return f"about {math.ceil(seconds / 60)} min"
+        return "Under a minute"
+    return f"About {math.ceil(seconds / 60)} min"
 
 
 # --------------------------------------------------------------------------

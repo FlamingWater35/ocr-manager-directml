@@ -141,8 +141,10 @@ from app.widgets.base import KvRow, SectionHeader
 
 PICK_KINDS = ("dark", "bright", "thin", "two_line")       # the detector's, in gallery order
 LINE_KIND = "line"                                         # a random subtitle line
-KIND_LABELS = {"dark": "dark scene", "bright": "bright bg", "thin": "thin strokes",
-               "two_line": "two lines", LINE_KIND: "subtitle line"}
+# A tile's caption reads "09:38 · Dark scene": the time and the kind are two
+# pieces of copy separated by a dot, so each starts with a capital.
+KIND_LABELS = {"dark": "Dark scene", "bright": "Bright background", "thin": "Thin strokes",
+               "two_line": "Two lines", LINE_KIND: "Subtitle line"}
 
 SHUFFLE_TEXT = "↻ Shuffle"
 SHUFFLE_TIP = "Draw other random subtitle lines (the detector's picks stay)"
@@ -266,10 +268,11 @@ def _alpha(colour: str, alpha: float) -> QColor:
 def _font(size: float, weight: int | None = None) -> QFont:
     font = QFont()
     font.setFamilies(tokens.FONT_STACK)
-    # px -> pt at Qt's 96 dpi logical baseline, floored at 1pt: Qt warns
-    # ("QFont::setPointSize: Point size <= 0") and ignores anything smaller,
-    # so a tiny or unscaled token must still give a usable font.
-    font.setPointSizeF(max(1.0, size * 0.75))
+    # px -> pt at Qt's fixed 96 dpi logical baseline, floored at 1pt (see
+    # tokens.font_pt): Qt warns "QFont::setPointSize: Point size <= 0" and
+    # ignores anything smaller, and a PIXEL-sized font would report
+    # pointSize() == -1, which is that same warning after any Qt round trip.
+    font.setPointSizeF(tokens.font_pt(size))
     if weight is not None:
         font.setWeight(QFont.Weight(weight))
     return font
@@ -289,7 +292,7 @@ def caption_texts(metrics, width: float, left: str, right: str,
     because of it.
 
     The other half gives way in two steps. `short` is the part worth keeping
-    whole (the time), so a tile that cannot hold "09:38 · dark scene" reads
+    whole (the time), so a tile that cannot hold "09:38 · Dark scene" reads
     "09:38" rather than "09:38 · …", which says less in the same space.
     Below even that, it elides."""
     room = float(width) - (metrics.horizontalAdvance(right) + CAPTION_GAP if right else 0.0)
@@ -1682,7 +1685,7 @@ class BrightnessTab:
             # sentence that explains why a tile just turned red.
             parts.append(f"Above {losing[0]} the {clock(losing[1])} sample starts losing strokes.")
         if auto is not None and stored is not None and auto != stored:
-            parts.append(f"detected {auto} · yours {stored}")      # ruling C2
+            parts.append(f"Detected {auto} · yours {stored}")      # ruling C2
         return " ".join(parts)
 
     @staticmethod

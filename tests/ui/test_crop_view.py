@@ -533,7 +533,7 @@ def test_the_filmstrip_shows_eight_thumbnails_and_pages(make_tab):
     harness = make_tab()
     strip = harness.tab.strip
     widen(strip)
-    assert strip.label_text() == "samples"
+    assert strip.label_text() == "Samples"
     assert strip.fits() == 8
     assert len(strip.thumbnails()) == 8
     assert strip.more_button.text() == "More ▸"
@@ -594,7 +594,7 @@ def test_no_sample_is_disagreeing_when_the_detection_found_no_box(make_tab):
     harness = make_tab(evidence=crop_evidence(box=None, envelope=None, flagged="static-content"))
     tones = {thumb.sample_index(): thumb.tone() for thumb in harness.tab.strip.thumbnails()}
     assert "warn" not in tones.values()
-    assert dict(harness.tab.panel.rows())["Detection"] == "a watermark, not subtitles"
+    assert dict(harness.tab.panel.rows())["Detection"] == "A watermark, not subtitles"
 
 
 def test_clicking_a_thumbnail_selects_it_and_takes_the_keyboard(make_tab):
@@ -822,9 +822,9 @@ def test_a_covered_disagreeing_sample_reads_as_covered(make_tab):
 
 def test_without_evidence_the_panel_names_the_source(make_tab):
     imported = make_tab(evidence=None, source=Source.IMPORTED)
-    assert dict(imported.tab.panel.rows())["Source"] == "imported from the previous version"
+    assert dict(imported.tab.panel.rows())["Source"] == "Imported from the previous version"
     mine = make_tab(evidence=None, source=Source.MANUAL)
-    assert dict(mine.tab.panel.rows())["Source"] == "set by you"
+    assert dict(mine.tab.panel.rows())["Source"] == "Set by you"
 
 
 def test_a_detection_that_differs_from_your_box_is_shown_as_the_detection(make_tab):
@@ -880,8 +880,8 @@ def test_the_canvas_tags_name_the_frame_the_crop_and_the_envelope(make_tab):
     harness = make_tab()
     tags = harness.tab.canvas.tags()
     assert tags["top_left"] == "1920 × 888 · t 01:00.00"
-    assert tags["top_right"] == "crop 288, 784 · 1344 × 55"
-    assert tags["bottom_right"] == "dashed = text found across all 11 samples"
+    assert tags["top_right"] == "Crop 288, 784 · 1344 × 55"
+    assert tags["bottom_right"] == "Dashed = text found across all 11 samples"
     harness.tab.envelope_button.click()
     assert "bottom_right" not in harness.tab.canvas.tags()
 
@@ -907,7 +907,7 @@ def test_a_canvas_tag_steps_clear_of_the_crop_box(make_tab):
 
 def test_the_envelope_legend_is_left_out_when_there_is_no_envelope(make_tab):
     """The legend explains a dashed rectangle. With no envelope none is
-    drawn, and "dashed = text found across all 0 samples" points at nothing
+    drawn, and "Dashed = text found across all 0 samples" points at nothing
     while telling the user the detector found nothing -- twice over."""
     harness = make_tab(evidence=crop_evidence(box=None, envelope=None, samples=[]))
     canvas = harness.tab.canvas
@@ -1188,20 +1188,20 @@ def test_partial_evidence_falls_back_to_the_no_evidence_row(make_tab):
     """A deleted evidence cache can leave a dict with nothing in it worth
     showing -- 'Samples with text 0 / 0' would be a lie."""
     harness = make_tab(evidence={"frame_size": list(FRAME_SIZE), "cutoff_frac": 0.55})
-    assert dict(harness.tab.panel.rows()) == {"Source": "set by you"}
+    assert dict(harness.tab.panel.rows()) == {"Source": "Set by you"}
 
 
 def test_an_informational_flag_reads_plainly_and_does_not_warn(make_tab):
     harness = make_tab(evidence=crop_evidence(flagged="no-speech"))
     panel = harness.tab.panel
-    assert dict(panel.rows())["Detection"] == "no speech — probed evenly"
+    assert dict(panel.rows())["Detection"] == "No speech — probed evenly"
     assert panel.row_tone("Detection") == ""
 
 
 def test_a_blocking_flag_reads_in_human_words_and_warns(make_tab):
     harness = make_tab(evidence=crop_evidence(box=None, envelope=None, flagged="static-content"))
     panel = harness.tab.panel
-    assert dict(panel.rows())["Detection"] == "a watermark, not subtitles"
+    assert dict(panel.rows())["Detection"] == "A watermark, not subtitles"
     assert panel.row_tone("Detection") == "warn"
 
 

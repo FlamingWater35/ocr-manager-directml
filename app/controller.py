@@ -173,7 +173,7 @@ from app.imaging import FrameCache, bgr_to_qimage
 from app.logbook import DETECTIONS_LOG, PIPELINE_LOG, LogBook
 from app.notify import send_notification
 from app.run_snapshot import DONE, FAILED, RunSnapshot, RunTracker, notification_for
-from app.state_text import badge_for
+from app.state_text import BADGE_DONE, BADGE_SKIPPED, badge_for
 from app.time_spans import read_ranges
 from core.detect.crop import CONSENSUS_MIN_ENTRIES
 from core.jobs import apply as rules
@@ -209,9 +209,10 @@ logger = logging.getLogger(__name__)
 BOTH_OFF_MESSAGE = "At least one of dialogue or labels must be on."
 PARALLEL_MESSAGE = "Parallel files must be at least 1."
 READY_STATES = frozenset({ReviewState.PROPOSED, ReviewState.REVIEWED})
-BADGE_SKIPPED, BADGE_DONE = "skipped", "done"          # app.state_text.badge_for's texts for those rows
-# The chip a row counts under, once its badge is neither "skipped" nor "done":
-# "reviewed", a "check ..." badge (FLAGGED) or a pending badge. PROPOSED ("ready") has no chip.
+# The chip a row counts under, once its badge is neither BADGE_SKIPPED nor
+# BADGE_DONE: "reviewed", a "Check ..." badge (FLAGGED) or a pending badge.
+# PROPOSED (BADGE_READY) has no chip. The badge texts themselves live in
+# app.state_text, which is the only place they are spelled.
 _BADGE_BUCKETS = {ReviewState.REVIEWED: "reviewed", ReviewState.FLAGGED: "needs_you",
                   ReviewState.PENDING: "detecting"}
 # Jobs a view asks for directly (core/jobs/view_jobs.py): pixels for the crop,
@@ -605,9 +606,9 @@ class ProjectController(QObject):
 
     def counts(self) -> dict[str, int]:
         """Chip counts that agree with the row badges (ruling B10):
-        "reviewed" (badge "reviewed"), "needs_you" (a "check ..." badge),
-        "detecting" (a pending badge: "finding subtitles…", "waiting", ...).
-        A row badged "skipped" or "done" counts in none of those three.
+        "reviewed" (badge "Reviewed"), "needs_you" (a "Check ..." badge),
+        "detecting" (a pending badge: "Finding subtitles…", "Waiting", ...).
+        A row badged "Skipped" or "Done" counts in none of those three.
         "ready": PROPOSED or REVIEWED, not skipped, not done."""
         counts = {"reviewed": 0, "needs_you": 0, "detecting": 0, "ready": 0}
         if self._project is None:

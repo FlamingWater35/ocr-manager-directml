@@ -108,7 +108,7 @@ PROOF_START_FRACTION = 0.4        # window start without a sample time, as a fra
 PROOF_PRIORITY = 100              # above every auto-pilot priority (tests/test_autopilot.py checks)
 # Why a proof cannot run yet, in the window's voice: the duration comes from
 # the metadata job, so an unknown one means the file has not been scanned.
-UNSCANNED_MESSAGE = "this file hasn't been scanned yet"
+UNSCANNED_MESSAGE = "This file hasn't been scanned yet"
 
 
 # --------------------------------------------------------------------------

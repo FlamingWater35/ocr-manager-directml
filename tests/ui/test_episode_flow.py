@@ -642,7 +642,7 @@ def test_the_settings_sheet_says_an_episodes_settings_are_its_own(make_window, c
     window.open_path(str(folder / "EP06.mkv"))
     window.open_folder_settings()
     settle()
-    assert window.folder_settings.scope_label.full_text() == "applies to EP06.mkv only"
+    assert window.folder_settings.scope_label.full_text() == "Applies to EP06.mkv only"
 
 
 def test_a_doubted_brightness_keeps_preparing_until_its_confirm_answers(make_window, controller, fake_runner, videos):

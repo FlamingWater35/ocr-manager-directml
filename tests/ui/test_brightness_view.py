@@ -397,7 +397,7 @@ def test_picks_that_share_a_time_are_one_tile_with_both_names(controller):
     made = make_tab(controller)
     assert [(tile.kinds, tile.time) for tile in made.tiles()] == [
         (("dark", "thin"), 10.0), (("bright",), 20.0)]
-    assert made.tiles()[0].caption_left() == "00:10 · dark scene · thin strokes"
+    assert made.tiles()[0].caption_left() == "00:10 · Dark scene · Thin strokes"
     made.page().close()
 
 
@@ -433,19 +433,19 @@ def test_the_tiles_are_one_column_across_the_whole_stage(mixed):
 
 
 def test_tile_captions_name_the_time_and_the_kind(mixed):
-    assert tile_of(mixed, "dark").caption_left() == "00:10 · dark scene"
-    assert tile_of(mixed, "two_line").caption_left() == "00:40 · two lines"
+    assert tile_of(mixed, "dark").caption_left() == "00:10 · Dark scene"
+    assert tile_of(mixed, "two_line").caption_left() == "00:40 · Two lines"
     assert mixed.tiles()[4].caption_left() == f"00:05 · {KIND_LABELS['line']}"
     assert "leaking" not in KIND_LABELS
 
 
 def test_a_narrow_caption_elides_the_kind_rather_than_printing_through_it(qapp):
     metrics = QFontMetrics(QFont())
-    left, right = "09:38 · dark scene", "28% of glyph pixels lost"
+    left, right = "09:38 · Dark scene", "28% of glyph pixels lost"
     wide = metrics.horizontalAdvance(left) + metrics.horizontalAdvance(right) + CAPTION_GAP
     assert caption_texts(metrics, wide, left, right) == (left, right)     # room for both
 
-    narrow = wide - metrics.horizontalAdvance("dark scene")
+    narrow = wide - metrics.horizontalAdvance("Dark scene")
     drawn_left, drawn_right = caption_texts(metrics, narrow, left, right, "09:38")
     assert drawn_right == right                                # the answer is never cut
     assert drawn_left == "09:38"
@@ -821,7 +821,7 @@ def test_a_tile_without_its_strip_says_loading(tab):
     assert tile.has_pixels() is False
     assert tile.source_rect() is None
     assert tile.placeholder_text() == TILE_LOADING == "Loading…"
-    assert tile.caption_left() == "00:10 · dark scene"
+    assert tile.caption_left() == "00:10 · Dark scene"
 
 
 def test_a_tile_whose_strip_could_not_be_read_says_so(tab, controller, fake_runner):
@@ -1293,7 +1293,7 @@ def test_a_stale_brightness_says_re_detecting_while_one_is_pending(controller):
 def test_flags_are_shown_as_a_warn_line(controller):
     give_values(controller, evidence=brightness_evidence(flagged="narrow-plateau?+dim-text?"))
     made = make_tab(controller)
-    assert made.panel.flag_text() == "narrow safe range · dim text on some frames"
+    assert made.panel.flag_text() == "Narrow safe range · Dim text on some frames"
     made.page().close()
 
 
@@ -1301,7 +1301,7 @@ def test_a_detected_value_that_differs_from_the_stored_one_is_named(controller):
     give_values(controller, value=211, source=Source.MANUAL,
                 evidence=brightness_evidence(value=209))
     made = make_tab(controller)
-    assert "detected 209 · yours 211" in " ".join(made.panel.notes())
+    assert "Detected 209 · yours 211" in " ".join(made.panel.notes())
     made.page().close()
 
 

@@ -690,12 +690,12 @@ class CropCanvas(QWidget):
         width, height = self._video
         x, y, box_width, box_height = self._box
         tags = {"top_left": f"{width} × {height} · t {_timecode(self._time)}",
-                "top_right": f"crop {x}, {y} · {box_width} × {box_height}"}
+                "top_right": f"Crop {x}, {y} · {box_width} × {box_height}"}
         # Only with an envelope to explain: `_paint_envelope` draws nothing
         # without one, and the legend would then name a dashed rectangle
         # that is not on screen ("across all 0 samples").
         if self._overlays["envelope"] and self._envelope is not None:
-            tags["bottom_right"] = f"dashed = text found across all {self._kept} samples"
+            tags["bottom_right"] = f"Dashed = text found across all {self._kept} samples"
         if self._detected is not None:
             # Ruling C2 is not a toggle: the user must always be able to see
             # that the amber box is theirs and the detection said otherwise.
@@ -756,7 +756,7 @@ class CropCanvas(QWidget):
             return
         painter.setPen(QColor(tokens.DIM2))
         font = painter.font()
-        font.setPixelSize(round(tokens.FONT_SIZE_SM))
+        font.setPointSizeF(tokens.font_pt(tokens.FONT_SIZE_SM))
         painter.setFont(font)
         painter.drawText(bounds, int(Qt.AlignmentFlag.AlignCenter), self.PLACEHOLDER_TEXT)
 
@@ -882,7 +882,7 @@ class CropCanvas(QWidget):
         """Every tag's rectangle, by corner -- what `_paint_tags` draws."""
         bounds = self.frame_rect() if bounds is None else bounds
         font = self.font()
-        font.setPixelSize(round(tokens.FONT_SIZE_SCOPE))
+        font.setPointSizeF(tokens.font_pt(tokens.FONT_SIZE_SCOPE))
         metrics = QFontMetricsF(font)
         return {corner: self.tag_rect(corner, bounds,
                                       metrics.horizontalAdvance(text) + 2 * self.TAG_PAD_X,
@@ -891,7 +891,7 @@ class CropCanvas(QWidget):
 
     def _paint_tags(self, painter: QPainter, bounds: QRectF) -> None:
         font = painter.font()
-        font.setPixelSize(round(tokens.FONT_SIZE_SCOPE))
+        font.setPointSizeF(tokens.font_pt(tokens.FONT_SIZE_SCOPE))
         painter.setFont(font)
         metrics = painter.fontMetrics()
         for corner, text in self.tags().items():
@@ -1051,7 +1051,7 @@ class SampleStrip(QWidget):
         # the widget: `minimumSizeHint` below is what the page's layout asks,
         # and `resizeEvent` hides whatever the width cannot hold.
         layout.setSizeConstraint(QHBoxLayout.SizeConstraint.SetNoConstraint)
-        self._label = note_label("samples")
+        self._label = note_label("Samples")
         # One line, both of them: this is a fixed-height row of thumbnails,
         # and a wrapping QLabel asks for almost no width -- which is how the
         # hint ended up stacked three deep ("◀ ▶" / "arrow" / "keys") beside

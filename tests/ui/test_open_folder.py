@@ -258,9 +258,9 @@ def test_recents_are_listed_newest_first_with_what_each_one_is(qapp, library):
     shown = [(row.kind_badge.text(), row.title_label.full_text(), row.location_label.full_text(),
               row.detail_label.text()) for row in view.recent_rows()]
     assert shown == [
-        ("episode", "Martial Master - 660", str(show), "just now"),
-        ("folder", "Martial Master", str(season), "1 episode · just now"),     # a season goes by its show
-        ("folder", "Martial Master", str(show), "12 episodes · just now"),
+        ("episode", "Martial Master - 660", str(show), "Just now"),
+        ("folder", "Martial Master", str(season), "1 episode · Just now"),     # a season goes by its show
+        ("folder", "Martial Master", str(show), "12 episodes · Just now"),
     ]
 
 
@@ -269,7 +269,7 @@ def test_opening_one_again_moves_it_to_the_top(qapp, library):
     record_recent(str(show), episode=False, count=13)
     view = OpenFolderView()
     assert paths_of(view) == [str(show), str(video), str(season)]
-    assert view.recent_rows()[0].detail_label.text() == "13 episodes · just now"
+    assert view.recent_rows()[0].detail_label.text() == "13 episodes · Just now"
 
 
 def test_a_recent_that_is_gone_is_hidden_but_kept(qapp, tmp_path):

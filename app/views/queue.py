@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMenu, QScrollArea, QVBoxLayout
 
 from app.run_snapshot import FAILED, QUEUED, RUNNING
 from app.state_text import (
+    BADGE_REVIEWED,
     badge_for,
     can_mark_reviewed,
     can_run_proof,
@@ -272,7 +273,7 @@ class QueueView(QWidget):
                                done=controller.is_done(name), run_state=None)
         if current == FILTER_NEEDS_YOU:
             return tone == "warn"
-        return text == "reviewed"
+        return text == BADGE_REVIEWED
 
     # --- selection ----------------------------------------------------------------------
 

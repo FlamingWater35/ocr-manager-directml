@@ -279,7 +279,7 @@ def test_the_three_ways_to_test_ocr_are_offered_by_one_rule(window, fake_runner)
 
     controller.entry(name).media = Media()               # never scanned
     assert offered() == {False}
-    assert inspector.proof_button.toolTip() == "this file hasn't been scanned yet"
+    assert inspector.proof_button.toolTip() == "This file hasn't been scanned yet"
 
     controller.entry(name).media = Media(1920, 888, DURATION, 25.0)
     assert offered() == {True}
@@ -341,7 +341,7 @@ def test_a_proof_of_a_file_whose_duration_is_unknown_says_so(make_window):
     window = make_window([entry(NAMES[0])] + [entry(name) for name in NAMES[1:]])
     window.controller.entry(NAMES[0]).media = Media(0, 0, 0.0, 0.0)
     window.inspector.proof_button.click()
-    assert window.inspector.proof_note.text() == "Can't run yet: this file hasn't been scanned yet"
+    assert window.inspector.proof_note.text() == "Can't run yet: This file hasn't been scanned yet"
     assert window.inspector.proof_note.property("tone") == "warn"
 
 
@@ -465,8 +465,8 @@ def test_a_hint_button_with_nothing_to_re_detect_says_so_in_its_own_words(make_w
     controller, inspector = window.controller, window.inspector
     controller.set_crop(NAMES[0], (290, 780, 1340, 60))
     assert not inspector.offer_section.isHidden()
-    assert hint_text(0, "crop") == "no other file to re-detect with this crop"
-    assert hint_text(0, "brightness") == "no other file to re-detect with this brightness"
+    assert hint_text(0, "crop") == "No other file to re-detect with this crop"
+    assert hint_text(0, "brightness") == "No other file to re-detect with this brightness"
     assert "0" not in hint_text(0, "crop")
     assert unwrapped(inspector.hint_buttons["crop"]) == hint_text(0, "crop")
     assert not inspector.hint_buttons["crop"].isEnabled()

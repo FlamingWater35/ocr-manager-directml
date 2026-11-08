@@ -78,16 +78,26 @@ IDLE_HINT = "{count} {noun} idle"
 QUEUED_HINT = "{count} {noun} queued ·"
 RAISE_TEXT = "Raise to {m}"
 
+# A run row's Phase cell for a file that is not running: the state's own name,
+# capitalised for display. `row.state` stays the lower-case token the runner
+# and the snapshot use, so this is the only place it is turned into copy.
+_STATE_TEXT = {QUEUED: "Queued", DONE: "Done", FAILED: "Failed", CANCELLED: "Cancelled"}
+
+
+def row_state_text(state: str) -> str:
+    """A run row's non-running state as the table shows it: "done" -> "Done"."""
+    return _STATE_TEXT.get(state, (state or "").capitalize())
+
 _PROGRESS_COLOURS = {"run": tokens.BLUE, "done": tokens.ACC, "bad": tokens.BAD, "dim": tokens.DIM2}
 
 
 def phase_text(phase: str) -> str:
     """videocr's phase name as the table shows it: "Extracting dialogue" →
-    "dialogue"; "starting" before the first progress report."""
+    "Dialogue"; "Starting" before the first progress report."""
     phase = (phase or "").strip().lower()
     if not phase:
-        return "starting"
-    return phase.removeprefix("extracting ").strip() or phase
+        return "Starting"
+    return (phase.removeprefix("extracting ").strip() or phase).capitalize()
 
 
 def feed_time(seconds: float) -> str:
@@ -348,14 +358,14 @@ class RunRow(QWidget):
             text, tone, fill = phase_text(row.phase), "run", (row.progress, "run")
             result = lines_text(row.lines) if row.lines else ""
         elif state == DONE:
-            text, tone, fill = "done", "ok", (1.0, "done")
+            text, tone, fill = row_state_text(DONE), "ok", (1.0, "done")
             result, result_tone = lines_text(row.lines), "ok"
         elif state == FAILED:
-            text, tone, fill, tooltip = "failed", "bad", (row.progress, "bad"), row.error
+            text, tone, fill, tooltip = row_state_text(FAILED), "bad", (row.progress, "bad"), row.error
         elif state == CANCELLED:
-            text, tone, fill = "cancelled", "dim", (row.progress, "dim")
+            text, tone, fill = row_state_text(CANCELLED), "dim", (row.progress, "dim")
         else:
-            text, tone, fill = QUEUED, "dim", (0.0, "dim")
+            text, tone, fill = row_state_text(QUEUED), "dim", (0.0, "dim")
         self.phase_dot.setVisible(state == RUNNING)
         self.phase_label.set_full_text(text)
         if tooltip:

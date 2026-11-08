@@ -343,7 +343,7 @@ def test_the_run_switch_appears_and_toggles_the_centre_and_right_area(window, fa
         assert hidden.isHidden()
     assert not top.logs_button.isHidden()                       # logs stay reachable during a run
     assert not top.pause_button.isHidden() and not top.stop_button.isHidden()
-    assert top.pause_button.text() == "⏸ pause" and top.stop_button.text() == "■ stop"
+    assert top.pause_button.text() == "⏸ Pause" and top.stop_button.text() == "■ Stop"
 
     switch_to(window, MODE_REVIEW)
     assert window.mode() == MODE_REVIEW and window.modes.currentWidget() is window.review_area
@@ -359,7 +359,7 @@ def test_the_run_switch_appears_and_toggles_the_centre_and_right_area(window, fa
     assert top.pause_button.isHidden() and top.stop_button.isHidden()
     assert not top.run_switch.isHidden()                        # the switch stays until another folder opens
     assert window.mode() == MODE_RUN
-    assert window.run_view.row("ep01.mkv").phase_label.text() == "done"      # the finished run's table stays
+    assert window.run_view.row("ep01.mkv").phase_label.text() == "Done"      # the finished run's table stays
 
     window.open_folder(str(tmp_project(["x.mkv"])))
     settle()
@@ -396,7 +396,7 @@ def test_top_bar_status_text_follows_the_run(window, fake_runner, monkeypatch):
     deliver(window)
     clock[0] = 1042.0
     window.topbar.refresh()
-    assert window.topbar.path_label.full_text() == "· running · 0 of 5 done · 0:42 elapsed"   # no ETA yet
+    assert window.topbar.path_label.full_text() == "· Running · 0 of 5 done · 0:42 elapsed"   # no ETA yet
 
     clock[0] = 1100.0
     fake_runner.emit(run, "run_file_finished", file="ep01.mkv", result={"ok": True, "lines": 3, "error": ""})
@@ -404,11 +404,11 @@ def test_top_bar_status_text_follows_the_run(window, fake_runner, monkeypatch):
     clock[0] = 1862.0
     window.topbar.refresh()
     # average 100 s x 4 remaining / 1 active worker = 400 s
-    assert window.topbar.path_label.full_text() == "· running · 1 of 5 done · 14:22 elapsed · ~7 min left"
+    assert window.topbar.path_label.full_text() == "· Running · 1 of 5 done · 14:22 elapsed · ~7 min left"
 
     window.topbar.pause_button.click()
     settle()
-    assert window.topbar.path_label.full_text().startswith("· paused · 1 of 5 done")
+    assert window.topbar.path_label.full_text().startswith("· Paused · 1 of 5 done")
 
 
 def test_eta_is_average_finished_time_times_remaining_over_active_workers():
@@ -419,14 +419,14 @@ def test_eta_is_average_finished_time_times_remaining_over_active_workers():
             RunFileRow("e", QUEUED))
     snapshot = RunSnapshot(rows, started_at=0.0, parallel=2)
     assert eta_seconds(snapshot) == pytest.approx(150.0 * 3 / 2)
-    assert run_status_text(snapshot, 842.0) == "· running · 1 of 5 done · 14:02 elapsed · ~4 min left"
+    assert run_status_text(snapshot, 842.0) == "· Running · 1 of 5 done · 14:02 elapsed · ~4 min left"
 
     one_running = RunSnapshot(rows[:3] + (RunFileRow("d", QUEUED), rows[4]), started_at=0.0, parallel=2)
     assert eta_seconds(one_running) == pytest.approx(150.0 * 3 / 1)
     none_running = RunSnapshot(rows[:2] + (RunFileRow("c"), RunFileRow("d"), RunFileRow("e")), started_at=0.0,
                                parallel=2, paused=True)
     assert eta_seconds(none_running) == pytest.approx(150.0 * 3)           # at least one worker
-    assert run_status_text(none_running, 3725.0) == "· paused · 1 of 5 done · 1:02:05 elapsed · ~8 min left"
+    assert run_status_text(none_running, 3725.0) == "· Paused · 1 of 5 done · 1:02:05 elapsed · ~8 min left"
 
     cancelled_only = RunSnapshot((RunFileRow("a", CANCELLED, started_at=0.0, finished_at=10.0), RunFileRow("b")),
                                  started_at=0.0, parallel=1)
@@ -435,9 +435,9 @@ def test_eta_is_average_finished_time_times_remaining_over_active_workers():
     assert eta_seconds(RunSnapshot(rows[:2], started_at=0.0, parallel=2)) is None     # nothing left
     short = RunSnapshot((RunFileRow("a", DONE, started_at=0.0, finished_at=20.0), RunFileRow("b", RUNNING)),
                         started_at=0.0, parallel=1, stopping=True)
-    assert run_status_text(short, 30.0) == "· stopping · 1 of 2 done · 0:30 elapsed"        # no ETA when stopping
+    assert run_status_text(short, 30.0) == "· Stopping · 1 of 2 done · 0:30 elapsed"        # no ETA when stopping
     assert run_status_text(RunSnapshot(short.files, started_at=0.0, parallel=1), 30.0) == \
-        "· running · 1 of 2 done · 0:30 elapsed · ~20 s left"
+        "· Running · 1 of 2 done · 0:30 elapsed · ~20 s left"
 
 
 def test_pause_resume_and_stop_buttons_call_the_controller(window, fake_runner):
@@ -449,17 +449,17 @@ def test_pause_resume_and_stop_buttons_call_the_controller(window, fake_runner):
     top.pause_button.click()
     settle()
     assert paused.calls == [((), {})] and run.job._paused
-    assert top.pause_button.text() == "▶ resume"
+    assert top.pause_button.text() == "▶ Resume"
     top.pause_button.click()
     settle()
     assert resumed.calls == [((), {})] and not run.job._paused
-    assert top.pause_button.text() == "⏸ pause"
+    assert top.pause_button.text() == "⏸ Pause"
 
     top.stop_button.click()
     settle()
     assert stopped.calls == [((), {})] and fake_runner.cancelled_keys == ["run"]
     assert not top.stop_button.isEnabled() and not top.pause_button.isEnabled()
-    assert top.path_label.full_text().startswith("· stopping ·")
+    assert top.path_label.full_text().startswith("· Stopping ·")
 
 
 # --------------------------------------------------------------------------
@@ -487,19 +487,19 @@ def test_run_events_render_rows_progress_results_failures_and_cancelled(window, 
     deliver(window)
 
     dialogue, labels, done, failed, queued = (view.row(name) for name in NAMES)
-    assert (dialogue.phase_label.text(), dialogue.phase_tone()) == ("dialogue", "run")
+    assert (dialogue.phase_label.text(), dialogue.phase_tone()) == ("Dialogue", "run")
     assert not dialogue.phase_dot.isHidden()
     assert (dialogue.progress.fraction(), dialogue.progress.tone()) == (pytest.approx(0.44), "run")
     assert dialogue.result_label.text() == "2 lines"
-    assert labels.phase_label.text() == "labels" and labels.result_label.text() == ""
-    assert (done.phase_label.text(), done.phase_tone()) == ("done", "ok")
+    assert labels.phase_label.text() == "Labels" and labels.result_label.text() == ""
+    assert (done.phase_label.text(), done.phase_tone()) == ("Done", "ok")
     assert done.phase_dot.isHidden()
     assert (done.progress.fraction(), done.progress.tone()) == (1.0, "done")
     assert (done.result_label.text(), done.result_tone()) == ("412 lines", "ok")
-    assert (failed.phase_label.text(), failed.phase_tone()) == ("failed", "bad")
+    assert (failed.phase_label.text(), failed.phase_tone()) == ("Failed", "bad")
     assert failed.phase_label.toolTip() == "decoder exploded"
     assert failed.progress.tone() == "bad"
-    assert (queued.phase_label.text(), queued.phase_tone()) == ("queued", "dim")
+    assert (queued.phase_label.text(), queued.phase_tone()) == ("Queued", "dim")
     assert queued.progress.fraction() == 0.0 and queued.result_label.text() == ""
 
     window.controller.stop_run()
@@ -510,16 +510,16 @@ def test_run_events_render_rows_progress_results_failures_and_cancelled(window, 
     deliver(window)
     for name in ("ep01.mkv", "ep02.mkv", "ep05.mkv"):
         row = view.row(name)
-        assert (row.phase_label.text(), row.phase_tone()) == ("cancelled", "dim")
+        assert (row.phase_label.text(), row.phase_tone()) == ("Cancelled", "dim")
         assert row.progress.tone() == "dim"
-    assert view.row("ep03.mkv").phase_label.text() == "done"
+    assert view.row("ep03.mkv").phase_label.text() == "Done"
 
 
 def test_phase_and_feed_texts():
-    assert phase_text("Extracting dialogue") == "dialogue"
-    assert phase_text("Extracting labels") == "labels"
-    assert phase_text("") == "starting"
-    assert phase_text("QA fixing") == "qa fixing"
+    assert phase_text("Extracting dialogue") == "Dialogue"
+    assert phase_text("Extracting labels") == "Labels"
+    assert phase_text("") == "Starting"
+    assert phase_text("QA fixing") == "Qa fixing"
     assert feed_time(578.9) == "09:38"
     assert feed_time(3725.0) == "62:05"
 

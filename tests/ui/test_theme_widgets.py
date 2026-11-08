@@ -246,11 +246,11 @@ def test_dot_tone_property_and_size(qapp):
 
 
 def test_chip_exposes_dot_tone_and_count(qapp):
-    chip = Chip(dot="warn", count=1, label="needs you")
-    assert chip.findChild(QLabel).text() in {"1", "needs you"}  # sanity: labels exist
+    chip = Chip(dot="warn", count=1, label="Needs you")
+    assert chip.findChild(QLabel).text() in {"1", "Needs you"}  # sanity: labels exist
     assert chip._dot.property("tone") == "warn"
     assert chip._count_label.text() == "1"
-    assert chip._label.text() == "needs you"
+    assert chip._label.text() == "Needs you"
     chip.set_count(3)
     assert chip._count_label.text() == "3"
     chip.set_tone("ok")
@@ -406,8 +406,8 @@ def test_segmented_control_set_labels_replaces_segments(qapp):
 # --------------------------------------------------------------------------
 
 def test_read_accessors(qapp):
-    chip = Chip(dot="warn", count=1, label="needs you")
-    assert chip.text() == "1 needs you" and chip.tone() == "warn"
+    chip = Chip(dot="warn", count=1, label="Needs you")
+    assert chip.text() == "1 Needs you" and chip.tone() == "warn"
     assert KvRow("Crop", "288, 784 · 1344 × 55").value() == "288, 784 · 1344 × 55"
     row = KvRow("Brightness", "211")
     row.set_value("211", "warn", tint_border=False)
@@ -634,6 +634,39 @@ def test_stylesheet_font_sizes_are_whole_pixels_from_the_scaled_tokens():
     assert "font-size: 23px" in doubled and "font-size: 23px" not in single
 
 
+def test_every_font_the_app_builds_is_sized_in_points_not_pixels(qapp):
+    """A pixel-sized `QFont` reports `pointSize() == -1`, and any later round
+    trip through Qt -- the stylesheet engine re-resolving a widget's font, a
+    `QFontDialog`, a native widget reading the size back -- then calls
+    `setPointSize(-1)` and Qt logs
+
+        QFont::setPointSize: Point size <= 0 (-1), must be greater than 0
+
+    So every font the app builds is set in points, through `tokens.font_pt`.
+    This walks the widgets the theme builds and the two view helpers, and
+    asserts the point size is real (not -1) and that no source file sets a
+    pixel size any more."""
+    from app.views import brightness_view, ranges_view
+    from app.views.episode import common as episode_common
+
+    qss.apply_theme(qapp)
+    built = [qapp.font(), base.Toggle().font(), brightness_view._font(14),
+             ranges_view._font(14), episode_common.font(14)]
+    for font in built:
+        assert font.pointSizeF() > 0, f"{font.families()} is pixel-sized"
+        assert font.pixelSize() == -1, "a point-sized font must not also carry a pixel size"
+
+    # ... and the conversion is the 96 dpi one, so the sizes are unchanged.
+    assert tokens.font_pt(14) == pytest.approx(10.5)
+    assert tokens.font_pt(0) == 1.0                     # floored: Qt ignores smaller
+    assert qapp.font().pointSizeF() == pytest.approx(tokens.font_pt(tokens.FONT_SIZE_BODY))
+
+    root = Path(__file__).resolve().parent.parent.parent / "app"
+    offenders = [str(path.relative_to(root)) for path in root.rglob("*.py")
+                 if "setPixelSize" in path.read_text(encoding="utf-8")]
+    assert offenders == [], f"pixel-sized fonts: {offenders}"
+
+
 def test_hairline_borders_stay_one_pixel_at_every_scale():
     """The deliberate exception. A border is part of Qt's box model: at 2 px
     the content box shrinks by a pixel on each side, which moves every label
@@ -650,7 +683,7 @@ def test_hairline_borders_stay_one_pixel_at_every_scale():
 def _widget_metrics() -> dict[str, int]:
     """Every length the base widgets lay out with, measured off real
     widgets (not read back from the tokens they were built from)."""
-    chip = Chip(dot="ok", count=3, label="reviewed")
+    chip = Chip(dot="ok", count=3, label="Reviewed")
     kv = KvRow("Crop", "288, 784 · 1344 × 55")
     header = SectionHeader("Detected")
     conf = ConfBar(0.5, caption="12 of 12 samples agree")
@@ -733,7 +766,7 @@ def test_the_chip_stays_a_pill_at_every_scale(qapp):
     exact step with the scaled padding, so the chip carries a floor."""
     for scale in (1.0, 1.25, 1.75, 2.0, 3.0):
         with themed_ui_scale(qapp, scale):
-            chip = Chip(dot="warn", count=1, label="needs you")
+            chip = Chip(dot="warn", count=1, label="Needs you")
             chip.ensurePolished()
             chip.adjustSize()
             assert chip.height() >= 2 * tokens.RADIUS_CHIP_QT, f"squared corners at {scale}"

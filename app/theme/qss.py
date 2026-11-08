@@ -736,7 +736,10 @@ def apply_theme(app: "QApplication") -> None:  # noqa: F821 -- PyQt6 import kept
 
     font = QFont()
     font.setFamilies(list(tokens.FONT_STACK))
-    font.setPixelSize(round(tokens.FONT_SIZE_BODY))
+    # In points, never pixels: a pixel-sized font reports pointSize() == -1,
+    # and any later round trip through Qt then calls setPointSize(-1) and logs
+    # "QFont::setPointSize: Point size <= 0 (-1), must be greater than 0".
+    font.setPointSizeF(tokens.font_pt(tokens.FONT_SIZE_BODY))
     app.setFont(font)
 
     palette = QPalette()

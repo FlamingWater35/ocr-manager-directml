@@ -247,7 +247,10 @@ def render_line(text: str | None = None):
     image.fill(QColor("black"))
     painter = QPainter(image)
     font = QFont(family) if family else QFont()
-    font.setPixelSize(64)
+    # 64 px at Qt's fixed 96 dpi logical baseline. In points, like every other
+    # font the app builds, so nothing reports pointSize() == -1 (see
+    # tokens.font_pt): Qt warns "Point size <= 0" if such a font round trips.
+    font.setPointSizeF(48.0)
     painter.setFont(font)
     painter.setPen(QColor("white"))
     painter.drawText(image.rect(), int(Qt.AlignmentFlag.AlignCenter), text)

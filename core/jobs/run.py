@@ -80,7 +80,7 @@ Outcomes
               (counted on the QA'd .partial just before the replace, so
               "failed" always means the final was not replaced).
     failed    an exception (its first line; the traceback goes to ctx.log),
-              or "no subtitles produced" when OCR wrote nothing.
+              or "No subtitles produced" when OCR wrote nothing.
     cancelled the file was stopped mid-way ("cancelled"), or never started
               because the run was stopped (no events for such a file).
 
@@ -98,7 +98,7 @@ Events (JobEvent.type; key and kind are "run")
                          before OCR starts; then one of "OCR cancelled.",
                          "QA: <d> dialogues, <f> fixed, <r> deduped" followed
                          by "OCR completed successfully.", "OCR failed: <error>"
-                         followed by the traceback, or "OCR failed: no
+                         followed by the traceback, or "OCR failed: No
                          subtitles produced" (today's worker called that a
                          success; the run reports it failed)
     "run_file_finished"  file=name, result={"ok": bool, "lines": int, "error": str}
@@ -129,7 +129,10 @@ PARTIAL_SUFFIX = ".partial"
 STOP_POLL_SECONDS = 0.1
 
 ERROR_CANCELLED = "cancelled"
-ERROR_NO_SUBTITLES = "no subtitles produced"
+# Shown to the user: a failed run row's tooltip, and the file's log line. A
+# sentence, so it starts with a capital. ERROR_CANCELLED above is a token
+# compared by equality (app/run_snapshot.py), so it stays lower case.
+ERROR_NO_SUBTITLES = "No subtitles produced"
 
 _OK, _FAILED, _CANCELLED = "ok", "failed", "cancelled"
 

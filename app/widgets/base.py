@@ -580,7 +580,7 @@ class Toggle(QAbstractButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         font = self.font()
-        font.setPixelSize(round(tokens.FONT_SIZE_BODY))
+        font.setPointSizeF(tokens.font_pt(tokens.FONT_SIZE_BODY))
         self.setFont(font)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.toggled.connect(lambda _on: self.update())

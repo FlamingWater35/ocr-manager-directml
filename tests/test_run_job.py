@@ -545,11 +545,11 @@ def test_several_ranges_with_no_text_produce_no_file_and_keep_the_old_final(tmp_
     summary, events = run_now(tmp_path, [run_file(tmp_path, "a.mp4", [("0:00", "1:00"), ("2:00", "3:00")])])
 
     assert summary.succeeded == [] and summary.cancelled == []
-    assert summary.failed == {"a.mp4": "no subtitles produced"}
+    assert summary.failed == {"a.mp4": "No subtitles produced"}
     assert qa.calls == []
     assert final_of(tmp_path, "a.mp4").read_bytes() == OLD_FINAL
     assert sorted(os.listdir(tmp_path / OUT)) == [out("a.mp4")]
-    assert events.of("a.mp4")[-1].result == {"ok": False, "lines": 0, "error": "no subtitles produced"}
+    assert events.of("a.mp4")[-1].result == {"ok": False, "lines": 0, "error": "No subtitles produced"}
 
 
 def test_a_stale_partial_from_an_earlier_run_is_never_promoted(tmp_path, ocr, qa):
@@ -558,7 +558,7 @@ def test_a_stale_partial_from_an_earlier_run_is_never_promoted(tmp_path, ocr, qa
     ocr.hooks["a.mp4"] = lambda kwargs: ""
     summary, _ = run_now(tmp_path, [run_file(tmp_path, "a.mp4", [("0:00", "1:00"), ("2:00", "3:00")])])
 
-    assert summary.failed == {"a.mp4": "no subtitles produced"}
+    assert summary.failed == {"a.mp4": "No subtitles produced"}
     assert qa.calls == []
     assert final_of(tmp_path, "a.mp4").read_bytes() == OLD_FINAL
     assert not partial_of(tmp_path, "a.mp4").exists()
@@ -763,7 +763,7 @@ def test_summary_sorts_every_file_into_one_outcome_in_snapshot_order(tmp_path, o
 
     assert isinstance(summary, RunSummary)
     assert summary.succeeded == ["d.mp4", "a.mp4"]
-    assert summary.failed == {"b.mp4": "boom", "c.mp4": "no subtitles produced"}
+    assert summary.failed == {"b.mp4": "boom", "c.mp4": "No subtitles produced"}
     assert list(summary.failed) == ["b.mp4", "c.mp4"]
     assert summary.cancelled == []
     assert 0 < summary.seconds <= elapsed
@@ -1186,7 +1186,7 @@ def test_a_qa_failure_logs_no_qa_line(tmp_path, ocr, qa):
 def test_a_file_that_produced_nothing_logs_the_failure(tmp_path, ocr, qa):
     ocr.hooks["a.mp4"] = lambda kwargs: ""
     _, events = run_now(tmp_path, [run_file(tmp_path, "a.mp4", [("0:00", "1:00"), ("2:00", "3:00")])])
-    assert file_log(events, "a.mp4")[-1] == "OCR failed: no subtitles produced\n"
+    assert file_log(events, "a.mp4")[-1] == "OCR failed: No subtitles produced\n"
 
 
 def test_output_name_is_the_file_a_run_writes_into_its_subfolder(tmp_path, ocr, qa):

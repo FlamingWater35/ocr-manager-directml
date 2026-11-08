@@ -199,10 +199,11 @@ def eta_text(seconds: float) -> str:
 
 
 def run_status_text(snapshot: RunSnapshot, now: float) -> str:
-    """"· running · 2 of 5 done · 14:22 elapsed · ~9 min left" ("paused" /
-    "stopping" instead of "running"; no ETA before a file finished or while
-    stopping)."""
-    word = "stopping" if snapshot.stopping else "paused" if snapshot.paused else "running"
+    """"· Running · 2 of 5 done · 14:22 elapsed · ~9 min left" ("Paused" /
+    "Stopping" instead of "Running"; no ETA before a file finished or while
+    stopping). The leading word is capitalised because the line stands on its
+    own in the top bar, where the path normally is."""
+    word = "Stopping" if snapshot.stopping else "Paused" if snapshot.paused else "Running"
     parts = [word, f"{snapshot.count(DONE)} of {len(snapshot.files)} done",
              f"{format_duration(elapsed_seconds(snapshot, now))} elapsed"]
     eta = None if snapshot.stopping else eta_seconds(snapshot)

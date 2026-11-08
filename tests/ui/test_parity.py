@@ -587,7 +587,7 @@ def test_done_files_are_badged_done_and_left_out_of_a_start(make_window, monkeyp
     settle()
 
     assert [name for name in NAMES if controller.is_done(name)] == ["ep02.mkv", "ep04.mkv"]
-    assert window.queue.row("ep02.mkv").badge.text() == "done"
+    assert window.queue.row("ep02.mkv").badge.text() == "Done"
     assert window.queue.row("ep03.mkv").badge.text() != "done"
     assert controller.startable_files() == ["ep01.mkv", "ep03.mkv", "ep05.mkv"]
     assert controller.startable_files(include_done=True) == NAMES
@@ -699,7 +699,7 @@ def test_the_inspector_shows_the_resolved_settings_the_details_dialog_showed(mak
 
     window.queue.select("ep01.mkv")
     settle()
-    assert inspector.window_row.value() == "whole file"
+    assert inspector.window_row.value() == "Whole file"
 
 
 def test_copy_and_paste_settings_from_a_rows_context_menu(make_window):

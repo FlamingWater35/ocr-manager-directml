@@ -2,7 +2,7 @@
 doing, instead of modal progress dialogs.
 
 - The current job: a blue dot, "{file} · {message}", a mini progress bar and
-  its percent; "idle" with a grey dot when nothing runs. Detection jobs report
+  its percent; "Idle" with a grey dot when nothing runs. Detection jobs report
   no progress fraction, so until a progress event arrives the bar is
   indeterminate (animated) and no percent is shown.
 - Trailing dim text: the latest finished jobs, "· {kind} done {n} s ago", up
@@ -21,22 +21,25 @@ from app.widgets.base import Button, Dot, ElidedLabel, MiniProgress
 
 RECENT_SHOWN = 2
 AGO_REFRESH_MS = 1000
-# What finished, as a noun: "audio analysis done 11 s ago".
+IDLE_TEXT = "Idle"
+# What finished, as a noun phrase: "Audio analysis done 11 s ago". Each starts
+# with a capital, like every other piece of copy in the window -- it follows a
+# "·" separator, not a lowercase continuation of a sentence.
 DONE_LABELS = {
-    "metadata": "metadata",
-    "thumbnail": "thumbnail",
-    "crop": "subtitle search",
-    "brightness": "brightness",
-    "ranges": "intro/outro matching",
-    "audio_profile": "audio analysis",
-    "lines": "subtitle lines",
-    # The brightness confirm stage, as a noun: "brightness check done 4 s
-    # ago". Deliberately not "brightness" -- that is the measurement, this is
+    "metadata": "Metadata",
+    "thumbnail": "Thumbnail",
+    "crop": "Subtitle search",
+    "brightness": "Brightness",
+    "ranges": "Intro/outro matching",
+    "audio_profile": "Audio analysis",
+    "lines": "Subtitle lines",
+    # The brightness confirm stage, as a noun: "Brightness check done 4 s
+    # ago". Deliberately not "Brightness" -- that is the measurement, this is
     # the OCR read that answers a doubt about it, and one file can show both
     # in the same trail. Saying a confirm finished claims nothing about the
     # file's review state; the queue badge is the only thing that does.
-    "confirm": "brightness check",
-    "proof": "test OCR",
+    "confirm": "Brightness check",
+    "proof": "Test OCR",
 }
 
 
@@ -46,7 +49,7 @@ def ago_text(seconds: float) -> str:
 
 
 def recent_text(recent, now: float) -> str:
-    """"· audio analysis done 11 s ago · metadata done 12 s ago": the newest
+    """"· Audio analysis done 11 s ago · Metadata done 12 s ago": the newest
     finished job of each kind, newest first."""
     parts, kinds = [], set()
     for kind, _file, finished_at in recent:
@@ -70,7 +73,7 @@ class ActivityStrip(QWidget):
         layout.setSpacing(tokens.px(10))
         self.dot = Dot("idle")
         # Long file names elide instead of widening the window.
-        self.text_label = ElidedLabel("idle", Qt.TextElideMode.ElideMiddle)
+        self.text_label = ElidedLabel(IDLE_TEXT, Qt.TextElideMode.ElideMiddle)
         self.progress = MiniProgress()
         self.percent_label = QLabel()
         self.recent_label = ElidedLabel()
@@ -101,7 +104,7 @@ class ActivityStrip(QWidget):
         current = snapshot.current
         if current is None:
             self.dot.set_tone("idle")
-            self.text_label.set_full_text("idle")
+            self.text_label.set_full_text(IDLE_TEXT)
             self.progress.hide()
             self.percent_label.hide()
         else:

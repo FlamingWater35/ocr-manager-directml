@@ -40,17 +40,35 @@ from core.project.model import FileEntry, ReviewState, Source
 # badge_for()
 # --------------------------------------------------------------------------
 
+# The badge texts the rest of the app compares against, exported as constants:
+# app/controller.py counts rows by them (BADGE_SKIPPED/BADGE_DONE) and
+# app/views/queue.py filters on BADGE_REVIEWED. Spelling them once means a
+# change of copy cannot silently break a comparison -- the same reason the
+# flag tables below are keyed by the detectors' own constants.
+BADGE_REVIEWED = "Reviewed"
+BADGE_SKIPPED = "Skipped"
+BADGE_DONE = "Done"
+BADGE_READY = "Ready"
+BADGE_WAITING = "Waiting"
+BADGE_RUNNING = "Running"
+BADGE_QUEUED = "Queued"
+BADGE_FAILED = "Failed"
+BADGE_FLAGGED = "Flagged"
+
 # PENDING badge text by which detector is running, checked in this order --
 # core.jobs.autopilot.PRIORITY's own ordering (crop=3, brightness=2,
 # ranges=0): the badge names whichever of a file's running detectors autopilot
 # would service first.
 _PENDING_ORDER = ("crop", "brightness", "ranges")
 _PENDING_TEXT = {
-    "crop": "finding subtitles…",
-    "brightness": "measuring brightness…",
-    "ranges": "matching intro/outro…",
+    "crop": "Finding subtitles…",
+    "brightness": "Measuring brightness…",
+    "ranges": "Matching intro/outro…",
 }
 
+# The field as a noun inside a sentence ("Set a crop first", "check crop +
+# brightness"): lower case on purpose, because these are never shown on their
+# own -- every use site is mid-sentence, where a capital would read wrong.
 _FIELD_LABEL = {"crop": "crop", "brightness": "brightness", "ranges": "time ranges"}
 _INFORMATIONAL_FLAGS = {
     "crop": _crop.INFORMATIONAL_FLAGS,
@@ -119,15 +137,17 @@ def _flagged_text(entry: FileEntry) -> str:
     if not fields:
         # Defensive only: compute_review_state() (core/jobs/apply.py) never
         # stores FLAGGED without one of the above being true.
-        return "flagged"
-    return "check " + " + ".join(_FIELD_LABEL[name] for name in fields)
+        return BADGE_FLAGGED
+    # The badge reads as its own sentence, so it opens with a capital; the
+    # field nouns after it stay lower case, as in any sentence.
+    return "Check " + " + ".join(_FIELD_LABEL[name] for name in fields)
 
 
 def _pending_text(running_detectors: set[str]) -> str:
     for name in _PENDING_ORDER:
         if name in running_detectors:
             return _PENDING_TEXT[name]
-    return "waiting"
+    return BADGE_WAITING
 
 
 def badge_for(entry: FileEntry, *, running_detectors: set[str], done: bool,
@@ -146,27 +166,30 @@ def badge_for(entry: FileEntry, *, running_detectors: set[str], done: bool,
     the caller's row style, not this badge's tone); then the `done` state
     (a non-empty output at the controller's output_path); then the file's ReviewState ladder.
     PENDING's text names whichever required detector `running_detectors`
-    has running (see _PENDING_ORDER), else "waiting".
+    has running (see _PENDING_ORDER), else "Waiting".
+
+    Every text starts with a capital: a badge is a standalone pill, never the
+    continuation of a sentence.
     """
     if run_state is not None:
         if run_state == "failed":
-            return "failed", "bad"
+            return BADGE_FAILED, "bad"
         if run_state == "done":
-            return "done", "good"
+            return BADGE_DONE, "good"
         if run_state == "queued":
-            return "queued", "default"
-        return "running", "default"
+            return BADGE_QUEUED, "default"
+        return BADGE_RUNNING, "default"
 
     if entry.skipped:
-        return "skipped", "default"
+        return BADGE_SKIPPED, "default"
     if done:
-        return "done", "good"
+        return BADGE_DONE, "good"
     if entry.review == ReviewState.REVIEWED:
-        return "reviewed", "good"
+        return BADGE_REVIEWED, "good"
     if entry.review == ReviewState.FLAGGED:
         return _flagged_text(entry), "warn"
     if entry.review == ReviewState.PROPOSED:
-        return "ready", "default"
+        return BADGE_READY, "default"
     return _pending_text(running_detectors), "default"
 
 
@@ -174,28 +197,28 @@ def badge_for(entry: FileEntry, *, running_detectors: set[str], done: bool,
 # Captions (crop_caption / brightness_caption / ranges_caption)
 # --------------------------------------------------------------------------
 
-_NOT_DETECTED = "not detected yet"   # no value at all (source None) and no
+_NOT_DETECTED = "Not detected yet"   # no value at all (source None) and no
                                      # evidence: the field is empty and no
                                      # detection has produced anything for it.
-_NO_EVIDENCE_KEPT = "detected earlier · no evidence kept"
+_NO_EVIDENCE_KEPT = "Detected earlier · no evidence kept"
 # A DETECTED/HINT value whose evidence dict is gone. Evidence is written to
 # the disposable `.ocr-cache/` (core/project/store.py), while the value, its
 # source and its flags live in `.ocr.json`, so wiping the cache leaves a
-# perfectly good detected value with nothing to quote. "not detected yet"
+# perfectly good detected value with nothing to quote. "Not detected yet"
 # beside the box that detection produced is simply untrue.
 
 
 def _manual_or_imported(source: Source | None) -> tuple[str, float, str] | None:
-    """MANUAL always reads "set by you" -- even over a stale/older evidence
+    """MANUAL always reads "Set by you" -- even over a stale/older evidence
     dict, since a DETECTED/HINT value accepted through Mark reviewed becomes
     MANUAL and must read that way (plan 3A Task 7) -- checked before
-    `evidence` is even looked at. IMPORTED with no evidence reads "imported
+    `evidence` is even looked at. IMPORTED with no evidence reads "Imported
     from the previous version". Returns None when neither applies, so the
     caller falls through to its evidence-based rule."""
     if source == Source.MANUAL:
-        return "set by you", 1.0, "ok"
+        return "Set by you", 1.0, "ok"
     if source == Source.IMPORTED:
-        return "imported from the previous version", 1.0, "ok"
+        return "Imported from the previous version", 1.0, "ok"
     return None
 
 
@@ -252,9 +275,9 @@ def brightness_caption(evidence: dict | None, source: Source | None, *,
     populates `curve`; see core/detect/brightness.py's module docstring and
     `detect_brightness`'s cheap-path branch), whose `plateau` is the
     FOLDER's plateau, not one measured on this file: its caption reads
-    "folder safe range {lo}-{hi}" and never takes the "narrow " prefix (that
-    prefix is reserved for a genuinely per-file measured plateau) -- but
-    still turns the tone "warn" when narrow, same as the per-file form.
+    "Folder safe range {lo}-{hi}" and never says "Narrow" (that word is
+    reserved for a genuinely per-file measured plateau) -- but still turns
+    the tone "warn" when narrow, same as the per-file form.
 
     `blocking`: as `crop_caption`'s, e.g. entry.flags["brightness"] holding
     "differs-from-hint?" from a hint re-detection. Ignored for the MANUAL/
@@ -265,17 +288,19 @@ def brightness_caption(evidence: dict | None, source: Source | None, *,
         return _no_evidence(source, blocking)
     plateau = evidence.get("plateau")
     if plateau is None:
-        return "not verified", 0.0, "warn"
+        return "Not verified", 0.0, "warn"
     lo, hi = plateau
     narrow = (hi - lo) < 20
     flagged_blocked = not only_informational(evidence.get("flagged"), _brightness.INFORMATIONAL_FLAGS)
     cheap_path = not evidence.get("curve")
     if cheap_path:
-        caption = f"folder safe range {lo}–{hi}"
+        caption = f"Folder safe range {lo}–{hi}"
+    elif narrow:
+        # One caption, not a "Narrow " prefix glued onto a lower-case one: the
+        # whole line is a sentence, so only its first word is capitalised.
+        caption = f"Narrow safe range {lo}–{hi}"
     else:
-        caption = f"safe range {lo}–{hi}"
-        if narrow:
-            caption = "narrow " + caption
+        caption = f"Safe range {lo}–{hi}"
     bar = min(1.0, (hi - lo) / 60)
     tone = "warn" if (narrow or flagged_blocked or blocking) else "ok"
     return caption, bar, tone
@@ -298,10 +323,10 @@ def ranges_caption(evidence: dict | None, source: Source | None, *,
         return _no_evidence(source, blocking)
     blocks = [b for b in (evidence.get("blocks") or []) if b.get("kind") in ("intro", "outro")]
     if not blocks:
-        return "no repeating intro/outro found", 0.0, ("warn" if blocking else "default")
+        return "No repeating intro/outro found", 0.0, ("warn" if blocking else "default")
     n = max(int(b["matched_files"]) for b in blocks) - 1
     bar = max(float(b["score"]) for b in blocks)
-    return f"intro+outro matched in {n} episodes", bar, ("warn" if blocking else "ok")
+    return f"Intro+outro matched in {n} episodes", bar, ("warn" if blocking else "ok")
 
 
 # --------------------------------------------------------------------------
@@ -356,10 +381,10 @@ def _time_text(value: str | None, missing: str) -> str:
 
 
 def ranges_text(time_ranges) -> str:
-    """"2:33 → 23:05" per keep range; "whole file" for None or an empty list
+    """"2:33 → 23:05" per keep range; "Whole file" for None or an empty list
     (a manual "Use whole file" is stored as an empty MANUAL list)."""
     if time_ranges is None or not time_ranges.ranges:
-        return "whole file"
+        return "Whole file"
     spans = [f"{_time_text(r.start, '0:00')} → {_time_text(r.end, 'end')}" for r in time_ranges.ranges]
     if len(spans) > _RANGES_SHOWN:
         return ", ".join(spans[:_RANGES_SHOWN]) + f" +{len(spans) - _RANGES_SHOWN}"
@@ -418,28 +443,30 @@ def can_run_proof(entry: FileEntry) -> bool:
 # themselves, never by a copy of their strings, so renaming a flag breaks the
 # build here instead of silently dropping a warning from the panel. An
 # unknown reason (a flag added without a line here) is shown as it is stored.
+# Several reasons can be joined with " · ", so each one opens with a capital
+# and reads as its own phrase rather than as a lowercase continuation.
 BRIGHTNESS_FLAG_TEXT = {
-    _brightness.FLAG_NEEDS_CROP: "no crop to measure in",
-    _brightness.FLAG_RANGES_EMPTY: "the keep ranges hold no frames",
-    _brightness.FLAG_NO_TEXT: "no text found to measure",
-    _brightness.FLAG_THIN_EVIDENCE: "few samples held text",
-    _brightness.FLAG_COLOURED_TEXT: "coloured text",
-    _brightness.FLAG_NO_PLATEAU: "not verified",
-    _brightness.FLAG_NARROW_PLATEAU: "narrow safe range",
-    _brightness.FLAG_DIM_TEXT: "dim text on some frames",
-    _brightness.FLAG_NO_CLEAN_THRESHOLD: "no threshold silences the empty frames",
-    _brightness.FLAG_ESCALATE: "not verified",
-    _brightness.FLAG_CANCELLED: "detection was cancelled",
-    _apply.FLAG_DIFFERS_FROM_HINT: "differs from the value it was hinted with",
-    _apply.FLAG_BRIGHTNESS_OTHER_CROP: "measured for a crop this file cannot hold",
+    _brightness.FLAG_NEEDS_CROP: "No crop to measure in",
+    _brightness.FLAG_RANGES_EMPTY: "The keep ranges hold no frames",
+    _brightness.FLAG_NO_TEXT: "No text found to measure",
+    _brightness.FLAG_THIN_EVIDENCE: "Few samples held text",
+    _brightness.FLAG_COLOURED_TEXT: "Coloured text",
+    _brightness.FLAG_NO_PLATEAU: "Not verified",
+    _brightness.FLAG_NARROW_PLATEAU: "Narrow safe range",
+    _brightness.FLAG_DIM_TEXT: "Dim text on some frames",
+    _brightness.FLAG_NO_CLEAN_THRESHOLD: "No threshold silences the empty frames",
+    _brightness.FLAG_ESCALATE: "Not verified",
+    _brightness.FLAG_CANCELLED: "Detection was cancelled",
+    _apply.FLAG_DIFFERS_FROM_HINT: "Differs from the value it was hinted with",
+    _apply.FLAG_BRIGHTNESS_OTHER_CROP: "Measured for a crop this file cannot hold",
 }
 
 
 def brightness_flag_text(flagged: str | None) -> str:
     """`entry.flags["brightness"]` (FLAG_* reasons joined by "+") as one
-    line, e.g. "narrow safe range · dim text on some frames". "" when
+    line, e.g. "Narrow safe range · Dim text on some frames". "" when
     nothing is flagged. Repeats are collapsed: two reasons can share a
-    line ("not verified")."""
+    line ("Not verified")."""
     reasons = [BRIGHTNESS_FLAG_TEXT.get(reason, reason)
                for reason in (flagged or "").split("+") if reason]
     return " · ".join(dict.fromkeys(reasons))
@@ -553,18 +580,18 @@ def mark_reviewed_tooltip(entry: FileEntry) -> str:
 # (core/detect/__init__.py's flag table).
 
 _CROP_FLAG_TEXT = {
-    _crop.FLAG_NO_SPEECH: "no speech — probed evenly",
-    _crop.FLAG_SPEECH_PROBES_EXHAUSTED: "no text where speech was",
-    _crop.FLAG_TOP_POSITIONED: "text outside the subtitle band",
-    _crop.FLAG_CEILING_EXCEEDED: "text too tall for a subtitle",
-    _crop.FLAG_LOW_AGREEMENT: "few frames agreed",
-    _crop.FLAG_STATIC_CONTENT: "a watermark, not subtitles",
-    _crop.FLAG_WATERMARK_UNCERTAIN: "may be a watermark",
-    _crop.FLAG_MULTIPLE_POSITIONS: "subtitles at several heights",
-    _crop.FLAG_OUTLIER_DISCARDED: "one odd frame dropped",
-    _crop.FLAG_CANCELLED: "stopped early",
-    _crop.FLAG_UNKNOWN_REJECTION: "no box could be built",
-    _apply.FLAG_CROP_CLAMPED: "larger than the frame — cut to fit",
+    _crop.FLAG_NO_SPEECH: "No speech — probed evenly",
+    _crop.FLAG_SPEECH_PROBES_EXHAUSTED: "No text where speech was",
+    _crop.FLAG_TOP_POSITIONED: "Text outside the subtitle band",
+    _crop.FLAG_CEILING_EXCEEDED: "Text too tall for a subtitle",
+    _crop.FLAG_LOW_AGREEMENT: "Few frames agreed",
+    _crop.FLAG_STATIC_CONTENT: "A watermark, not subtitles",
+    _crop.FLAG_WATERMARK_UNCERTAIN: "May be a watermark",
+    _crop.FLAG_MULTIPLE_POSITIONS: "Subtitles at several heights",
+    _crop.FLAG_OUTLIER_DISCARDED: "One odd frame dropped",
+    _crop.FLAG_CANCELLED: "Stopped early",
+    _crop.FLAG_UNKNOWN_REJECTION: "No box could be built",
+    _apply.FLAG_CROP_CLAMPED: "Larger than the frame — cut to fit",
 }
 
 

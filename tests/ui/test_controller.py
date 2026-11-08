@@ -955,7 +955,7 @@ def test_request_lines_leaves_a_running_draw_alone(make_controller, fake_runner,
     fake_runner.start(auto)
     controller.drain_events()
     assert controller.activity().current[:2] == ("lines", name)
-    assert controller.activity().current[3] == "finding subtitle lines"
+    assert controller.activity().current[3] == "Finding subtitle lines"
     assert controller.running_detectors(name) == {"lines"}
 
     controller.request_lines(name)
@@ -1039,7 +1039,7 @@ def test_lines_never_change_review_states_badges_or_counts(make_controller, fake
 # Confirming a doubted brightness (the "confirm" stage)
 # --------------------------------------------------------------------------
 # The detector measures a threshold it then doubts, so the file is FLAGGED and
-# the queue badges it "check brightness". AutoPilot answers most of those
+# the queue badges it "Check brightness". AutoPilot answers most of those
 # doubts without the user: one masked strip, read by the OCR engine at the
 # folder's own conf_threshold, stepping the threshold down until it reads
 # (core/detect/confirm.py). A confirmed file becomes PROPOSED and badges
@@ -1155,7 +1155,7 @@ def test_a_confirmed_file_stops_asking_for_the_user_and_badges_ready(make_contro
     name = "ep01.mkv"
     controller, folder = open_doubted(make_controller, fake_runner, tmp_project)
     assert controller.entry(name).review == ReviewState.FLAGGED
-    assert badge(controller, name) == ("check brightness", "warn")
+    assert badge(controller, name) == ("Check brightness", "warn")
     assert controller.counts()["needs_you"] == 1 and controller.counts()["ready"] == 0
     changed = Spy(controller.file_changed)
 
@@ -1167,7 +1167,7 @@ def test_a_confirmed_file_stops_asking_for_the_user_and_badges_ready(make_contro
     assert entry.brightness == Brightness(209, Source.DETECTED)     # the rung that passed was the stored one
     assert entry.flags["brightness"] == ""                          # the doubt is retired
     assert entry.review == ReviewState.PROPOSED
-    assert badge(controller, name) == ("ready", "default")
+    assert badge(controller, name) == ("Ready", "default")
     assert controller.counts()["needs_you"] == 0 and controller.counts()["ready"] == 1
     assert name in changed.firsts
     assert controller.startable_files() == [name]                   # a FLAGGED file never was
@@ -1189,7 +1189,7 @@ def test_a_confirm_that_passed_lower_down_leaves_the_lower_brightness(make_contr
     entry = controller.entry(name)
     assert entry.brightness == Brightness(189, Source.DETECTED)
     assert entry.review == ReviewState.PROPOSED
-    assert badge(controller, name) == ("ready", "default")
+    assert badge(controller, name) == ("Ready", "default")
     assert wait_for(lambda: saved(folder)["files"][name]["brightness"]["value"] == 189, WAIT_MS)
 
 
@@ -1209,7 +1209,7 @@ def test_a_failed_confirm_leaves_the_file_flagged_and_still_checking_brightness(
     assert entry.brightness == Brightness(209, Source.DETECTED)
     assert entry.flags["brightness"] == FLAG_DIM_TEXT
     assert entry.review == ReviewState.FLAGGED
-    assert badge(controller, name) == ("check brightness", "warn")
+    assert badge(controller, name) == ("Check brightness", "warn")
     assert controller.counts()["needs_you"] == 1 and controller.startable_files() == []
 
 
@@ -1255,11 +1255,11 @@ def test_a_running_confirm_shows_in_the_activity_strip_but_changes_no_badge(make
     controller.drain_events()
 
     assert controller.activity().current[:2] == ("confirm", name)
-    assert controller.activity().current[3] == "checking brightness"
+    assert controller.activity().current[3] == "Checking brightness"
     assert controller.running_detectors(name) == {"confirm"}     # an auto-pilot kind, so it is counted
     assert "confirm" not in controller.pending_detectors().get(name, set())
     assert not controller.is_detection_kind("confirm")           # the top bar's "detecting" dot stays dark
-    assert badge(controller, name) == before == ("check brightness", "warn")
+    assert badge(controller, name) == before == ("Check brightness", "warn")
     assert controller.entry(name).review == ReviewState.FLAGGED
 
 
@@ -1296,22 +1296,22 @@ def test_counts_for_a_mix_of_states(make_controller, fake_runner, tmp_project):
 
 # (review state, skipped, done) -> (badge text, chip it counts under or None, ready)
 COUNT_CASES = [
-    (ReviewState.REVIEWED, False, False, "reviewed", "reviewed", True),
-    (ReviewState.REVIEWED, True, False, "skipped", None, False),
-    (ReviewState.REVIEWED, False, True, "done", None, False),
-    (ReviewState.REVIEWED, True, True, "skipped", None, False),
-    (ReviewState.FLAGGED, False, False, "check crop", "needs_you", False),
-    (ReviewState.FLAGGED, True, False, "skipped", None, False),
-    (ReviewState.FLAGGED, False, True, "done", None, False),
-    (ReviewState.FLAGGED, True, True, "skipped", None, False),
-    (ReviewState.PENDING, False, False, "waiting", "detecting", False),
-    (ReviewState.PENDING, True, False, "skipped", None, False),
-    (ReviewState.PENDING, False, True, "done", None, False),
-    (ReviewState.PENDING, True, True, "skipped", None, False),
-    (ReviewState.PROPOSED, False, False, "ready", None, True),
-    (ReviewState.PROPOSED, True, False, "skipped", None, False),
-    (ReviewState.PROPOSED, False, True, "done", None, False),
-    (ReviewState.PROPOSED, True, True, "skipped", None, False),
+    (ReviewState.REVIEWED, False, False, "Reviewed", "reviewed", True),
+    (ReviewState.REVIEWED, True, False, "Skipped", None, False),
+    (ReviewState.REVIEWED, False, True, "Done", None, False),
+    (ReviewState.REVIEWED, True, True, "Skipped", None, False),
+    (ReviewState.FLAGGED, False, False, "Check crop", "needs_you", False),
+    (ReviewState.FLAGGED, True, False, "Skipped", None, False),
+    (ReviewState.FLAGGED, False, True, "Done", None, False),
+    (ReviewState.FLAGGED, True, True, "Skipped", None, False),
+    (ReviewState.PENDING, False, False, "Waiting", "detecting", False),
+    (ReviewState.PENDING, True, False, "Skipped", None, False),
+    (ReviewState.PENDING, False, True, "Done", None, False),
+    (ReviewState.PENDING, True, True, "Skipped", None, False),
+    (ReviewState.PROPOSED, False, False, "Ready", None, True),
+    (ReviewState.PROPOSED, True, False, "Skipped", None, False),
+    (ReviewState.PROPOSED, False, True, "Done", None, False),
+    (ReviewState.PROPOSED, True, True, "Skipped", None, False),
 ]
 
 
@@ -1628,7 +1628,7 @@ def test_done_follows_the_output_naming_and_never_counts_the_old_chi_output(
     controller.drain_events()
     submitted = len(fake_runner.submissions)
     changed = Spy(controller.file_changed)
-    assert controller.is_done("EP01.mkv") and badge(controller, "EP01.mkv")[0] == "done"
+    assert controller.is_done("EP01.mkv") and badge(controller, "EP01.mkv")[0] == "Done"
     assert not controller.is_done("EP02.mkv")
     assert controller.output_path("EP01.mkv") == str(folder / "zh" / "EP01.zh.ass")
     assert controller.output_label("EP01.mkv") == "zh/EP01.zh.ass"
@@ -2453,7 +2453,7 @@ def test_set_crop_clamps_to_the_files_frame(make_controller, fake_runner, tmp_pr
     entry = controller.entry("ep01.mkv")
     assert (entry.crop.x, entry.crop.y, entry.crop.width, entry.crop.height) == SMALL_BOX
     assert FLAG_CROP_CLAMPED in entry.flags["crop"]
-    assert badge_for(entry, running_detectors=set(), done=False, run_state=None)[0] == "check crop"
+    assert badge_for(entry, running_detectors=set(), done=False, run_state=None)[0] == "Check crop"
 
 
 def test_pasting_across_resolutions_fits_the_target_and_doubts_the_brightness(
@@ -2477,7 +2477,7 @@ def test_pasting_across_resolutions_fits_the_target_and_doubts_the_brightness(
     assert FLAG_BRIGHTNESS_OTHER_CROP in target.flags["brightness"]
     assert target.review == ReviewState.FLAGGED
     assert badge_for(target, running_detectors=set(), done=False,
-                     run_state=None)[0] == "check crop + brightness"
+                     run_state=None)[0] == "Check crop + brightness"
 
 
 def test_a_crop_edited_before_the_metadata_lands_is_cut_when_it_arrives(

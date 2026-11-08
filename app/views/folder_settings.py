@@ -11,7 +11,7 @@ Presentation (B8)
     "✕" closes it; so does Esc, but only while focus is inside the sheet.
 
 Layout
-    Its own header row ("⚙ Folder settings", "applies to all N files in
+    Its own header row ("⚙ Folder settings", "Applies to all N files in
     {folder}", "✕"); a 150 px (scaled) nav of the five sections; on the
     right one scrolling column of `.sec` blocks. A nav click scrolls its section to the
     top and scrolling moves the nav's highlight. The Labels section and its
@@ -90,8 +90,8 @@ MASKS_TEXT = "{count} drawn · draw on the Crop tab"
 
 def scope_text(count: int, folder: str) -> str:
     if count == 1:
-        return f"applies to the 1 file in {folder}"
-    return f"applies to all {count} files in {folder}"
+        return f"Applies to the 1 file in {folder}"
+    return f"Applies to all {count} files in {folder}"
 
 
 # --------------------------------------------------------------------------
@@ -603,7 +603,7 @@ class FolderSettingsSheet(QWidget):
             return
         episode = getattr(self._controller, "episode_name", lambda: None)()
         if episode is not None:                 # an episode's settings are its own, not its folder's
-            self.scope_label.set_full_text(f"applies to {episode} only")
+            self.scope_label.set_full_text(f"Applies to {episode} only")
             return
         folder = os.path.basename(project.path) or project.path
         self.scope_label.set_full_text(scope_text(len(self._controller.names()), folder))

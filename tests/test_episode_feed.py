@@ -81,7 +81,7 @@ def test_eta_and_speed_words():
     assert speed_words(4.06) == "4.1× real time"
 
 
-@pytest.mark.parametrize("seconds, text", [(20, "under a minute"), (61, "about 2 min"), (360, "about 6 min")])
+@pytest.mark.parametrize("seconds, text", [(20, "Under a minute"), (61, "About 2 min"), (360, "About 6 min")])
 def test_estimate_words(seconds, text):
     assert estimate_words(seconds) == text
 

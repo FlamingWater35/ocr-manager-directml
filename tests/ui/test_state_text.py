@@ -49,25 +49,25 @@ def _entry(**kwargs) -> FileEntry:
 def test_badge_pending_crop_running():
     entry = _entry(review=ReviewState.PENDING)
     assert state_text.badge_for(entry, running_detectors={"crop"}, done=False,
-                                run_state=None) == ("finding subtitles…", "default")
+                                run_state=None) == ("Finding subtitles…", "default")
 
 
 def test_badge_pending_brightness_running():
     entry = _entry(review=ReviewState.PENDING)
     assert state_text.badge_for(entry, running_detectors={"brightness"}, done=False,
-                                run_state=None) == ("measuring brightness…", "default")
+                                run_state=None) == ("Measuring brightness…", "default")
 
 
 def test_badge_pending_ranges_running():
     entry = _entry(review=ReviewState.PENDING)
     assert state_text.badge_for(entry, running_detectors={"ranges"}, done=False,
-                                run_state=None) == ("matching intro/outro…", "default")
+                                run_state=None) == ("Matching intro/outro…", "default")
 
 
 def test_badge_pending_nothing_running_waits():
     entry = _entry(review=ReviewState.PENDING)
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("waiting", "default")
+                                run_state=None) == (state_text.BADGE_WAITING, "default")
 
 
 def test_badge_pending_prefers_crop_over_brightness_and_ranges():
@@ -75,33 +75,33 @@ def test_badge_pending_prefers_crop_over_brightness_and_ranges():
     entry = _entry(review=ReviewState.PENDING)
     text, tone = state_text.badge_for(entry, running_detectors={"ranges", "brightness", "crop"},
                                       done=False, run_state=None)
-    assert (text, tone) == ("finding subtitles…", "default")
+    assert (text, tone) == ("Finding subtitles…", "default")
 
 
 def test_badge_proposed():
     entry = _entry(review=ReviewState.PROPOSED)
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("ready", "default")
+                                run_state=None) == (state_text.BADGE_READY, "default")
 
 
 def test_badge_flagged_crop_missing():
     entry = _entry(review=ReviewState.FLAGGED, crop=None,
                    brightness=Brightness(200, Source.MANUAL))
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check crop", "warn")
+                                run_state=None) == ("Check crop", "warn")
 
 
 def test_badge_flagged_brightness_missing():
     entry = _entry(review=ReviewState.FLAGGED, crop=Crop(0, 0, 10, 10, Source.DETECTED),
                    brightness=None)
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check brightness", "warn")
+                                run_state=None) == ("Check brightness", "warn")
 
 
 def test_badge_flagged_crop_and_brightness_missing():
     entry = _entry(review=ReviewState.FLAGGED, crop=None, brightness=None)
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check crop + brightness", "warn")
+                                run_state=None) == ("Check crop + brightness", "warn")
 
 
 def test_badge_flagged_crop_present_but_blocking_flag():
@@ -109,7 +109,7 @@ def test_badge_flagged_crop_present_but_blocking_flag():
                    brightness=Brightness(200, Source.MANUAL),
                    flags={"crop": "low-agreement"})
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check crop", "warn")
+                                run_state=None) == ("Check crop", "warn")
 
 
 def test_badge_flagged_crop_present_informational_flag_only_not_flagged_text():
@@ -118,7 +118,7 @@ def test_badge_flagged_crop_present_informational_flag_only_not_flagged_text():
     entry = _entry(review=ReviewState.FLAGGED, crop=Crop(0, 0, 10, 10, Source.DETECTED),
                    brightness=None, flags={"crop": "no-speech"})
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check brightness", "warn")
+                                run_state=None) == ("Check brightness", "warn")
 
 
 def test_badge_flagged_time_ranges_synthetic():
@@ -133,7 +133,7 @@ def test_badge_flagged_time_ranges_synthetic():
                    time_ranges=TimeRanges([], Source.DETECTED),
                    flags={"ranges": "some-future-blocking-reason"})
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check time ranges", "warn")
+                                run_state=None) == ("Check time ranges", "warn")
 
 
 def test_badge_flagged_time_ranges_ignored_when_manual():
@@ -152,26 +152,26 @@ def test_badge_flagged_time_ranges_ignored_when_manual():
 def test_badge_reviewed():
     entry = _entry(review=ReviewState.REVIEWED)
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("reviewed", "good")
+                                run_state=None) == (state_text.BADGE_REVIEWED, "good")
 
 
 def test_badge_done_overrides_review_state():
     entry = _entry(review=ReviewState.PROPOSED)
     assert state_text.badge_for(entry, running_detectors=set(), done=True,
-                                run_state=None) == ("done", "good")
+                                run_state=None) == (state_text.BADGE_DONE, "good")
 
 
 def test_badge_skipped_overrides_everything_outside_a_run():
     entry = _entry(review=ReviewState.PROPOSED, skipped=True)
     assert state_text.badge_for(entry, running_detectors=set(), done=True,
-                                run_state=None) == ("skipped", "default")
+                                run_state=None) == (state_text.BADGE_SKIPPED, "default")
 
 
 @pytest.mark.parametrize("run_state, expected", [
-    ("running", ("running", "default")),
-    ("failed", ("failed", "bad")),
-    ("queued", ("queued", "default")),
-    ("done", ("done", "good")),
+    ("running", (state_text.BADGE_RUNNING, "default")),
+    ("failed", (state_text.BADGE_FAILED, "bad")),
+    ("queued", (state_text.BADGE_QUEUED, "default")),
+    ("done", (state_text.BADGE_DONE, "good")),
 ])
 def test_badge_run_states(run_state, expected):
     entry = _entry(review=ReviewState.PENDING)
@@ -182,7 +182,7 @@ def test_badge_run_states(run_state, expected):
 def test_badge_run_state_overrides_skipped():
     entry = _entry(review=ReviewState.PENDING, skipped=True)
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state="running") == ("running", "default")
+                                run_state="running") == (state_text.BADGE_RUNNING, "default")
 
 
 # --------------------------------------------------------------------------
@@ -203,7 +203,7 @@ def test_badge_matches_apply_rules_when_a_flagged_detected_value_becomes_manual(
     blocking flag string is left behind, unread -- core/jobs/apply.py never
     clears entry.flags on acceptance); brightness stays DETECTED and stale,
     so the file stays FLAGGED for brightness only. Before the fix,
-    badge_for() also reported "check crop" because it looked at
+    badge_for() also reported "Check crop" because it looked at
     entry.flags["crop"] alone, ignoring that crop's value was no longer
     DETECTED/HINT."""
     entry = FileEntry(name="ep01.mp4")
@@ -270,7 +270,7 @@ def test_badge_matches_apply_rules_when_a_flagged_detected_value_becomes_manual(
     assert entry.review == ReviewState.FLAGGED
 
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check brightness", "warn")
+                                run_state=None) == ("Check brightness", "warn")
 
 
 def test_badge_ignores_leftover_flag_on_a_manual_value():
@@ -299,7 +299,7 @@ def test_badge_ignores_leftover_flag_on_a_manual_value():
     assert "crop" not in state_text._blocking_fields(entry)
 
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check brightness", "warn")
+                                run_state=None) == ("Check brightness", "warn")
 
 
 def test_badge_missing_value_is_flagged_without_any_detector_flag():
@@ -312,7 +312,7 @@ def test_badge_missing_value_is_flagged_without_any_detector_flag():
     assert entry.flags.get("crop") is None   # never even ran a crop detector
 
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check crop", "warn")
+                                run_state=None) == ("Check crop", "warn")
 
 
 def test_badge_stale_brightness_is_flagged_even_though_still_detected():
@@ -350,7 +350,7 @@ def test_badge_stale_brightness_is_flagged_even_though_still_detected():
     assert entry.review == ReviewState.FLAGGED
 
     assert state_text.badge_for(entry, running_detectors=set(), done=False,
-                                run_state=None) == ("check brightness", "warn")
+                                run_state=None) == ("Check brightness", "warn")
 
 
 # --------------------------------------------------------------------------
@@ -359,27 +359,27 @@ def test_badge_stale_brightness_is_flagged_even_though_still_detected():
 
 def test_crop_caption_manual_ignores_evidence():
     evidence = {"agreed": 3, "probes_used": 12, "flagged": "low-agreement"}
-    assert state_text.crop_caption(evidence, Source.MANUAL) == ("set by you", 1.0, "ok")
+    assert state_text.crop_caption(evidence, Source.MANUAL) == ("Set by you", 1.0, "ok")
 
 
 def test_crop_caption_manual_no_evidence():
-    assert state_text.crop_caption(None, Source.MANUAL) == ("set by you", 1.0, "ok")
+    assert state_text.crop_caption(None, Source.MANUAL) == ("Set by you", 1.0, "ok")
 
 
 def test_crop_caption_imported_no_evidence():
     assert state_text.crop_caption(None, Source.IMPORTED) == (
-        "imported from the previous version", 1.0, "ok")
+        "Imported from the previous version", 1.0, "ok")
 
 
 def test_crop_caption_no_evidence_no_source_falls_back():
-    assert state_text.crop_caption(None, None) == ("not detected yet", 0.0, "default")
+    assert state_text.crop_caption(None, None) == ("Not detected yet", 0.0, "default")
 
 
 @pytest.mark.parametrize("caption", ["crop_caption", "brightness_caption", "ranges_caption"])
 @pytest.mark.parametrize("source, expected", [
-    (None, ("not detected yet", 0.0, "default")),
-    (Source.DETECTED, ("detected earlier · no evidence kept", 0.0, "default")),
-    (Source.HINT, ("detected earlier · no evidence kept", 0.0, "default")),
+    (None, ("Not detected yet", 0.0, "default")),
+    (Source.DETECTED, ("Detected earlier · no evidence kept", 0.0, "default")),
+    (Source.HINT, ("Detected earlier · no evidence kept", 0.0, "default")),
 ])
 def test_a_detected_value_with_no_evidence_does_not_read_as_undetected(caption, source, expected):
     """Evidence lives in the disposable .ocr-cache/, so a perfectly good
@@ -394,7 +394,7 @@ def test_a_flagged_detected_value_with_no_evidence_still_warns(caption):
     """entry.flags lives in .ocr.json, so the doubt survives the wipe even
     though the reading behind it does not."""
     assert getattr(state_text, caption)(None, Source.DETECTED, blocking=True) == (
-        "detected earlier · no evidence kept", 0.0, "warn")
+        "Detected earlier · no evidence kept", 0.0, "warn")
 
 
 def test_crop_caption_evidence_informational_flag_is_ok():
@@ -447,28 +447,28 @@ def test_crop_caption_zero_probes_used_avoids_division_by_zero():
 
 def test_brightness_caption_manual_ignores_evidence():
     evidence = {"plateau": None}
-    assert state_text.brightness_caption(evidence, Source.MANUAL) == ("set by you", 1.0, "ok")
+    assert state_text.brightness_caption(evidence, Source.MANUAL) == ("Set by you", 1.0, "ok")
 
 
 def test_brightness_caption_imported_no_evidence():
     assert state_text.brightness_caption(None, Source.IMPORTED) == (
-        "imported from the previous version", 1.0, "ok")
+        "Imported from the previous version", 1.0, "ok")
 
 
 def test_brightness_caption_no_evidence_falls_back():
-    assert state_text.brightness_caption(None, None) == ("not detected yet", 0.0, "default")
+    assert state_text.brightness_caption(None, None) == ("Not detected yet", 0.0, "default")
 
 
 def test_brightness_caption_no_plateau_is_not_verified():
     evidence = {"plateau": None, "flagged": "no-plateau?"}
-    assert state_text.brightness_caption(evidence, Source.DETECTED) == ("not verified", 0.0, "warn")
+    assert state_text.brightness_caption(evidence, Source.DETECTED) == ("Not verified", 0.0, "warn")
 
 
 def test_brightness_caption_wide_plateau_no_flag_is_ok_no_narrow_prefix():
     # A non-empty curve marks this a full (not cheap-path) detection.
     evidence = {"plateau": [180, 220], "flagged": None, "curve": [[200, 0.98]]}
     caption, bar, tone = state_text.brightness_caption(evidence, Source.DETECTED)
-    assert caption == "safe range 180–220"
+    assert caption == "Safe range 180–220"
     assert bar == pytest.approx(40 / 60)
     assert tone == "ok"
 
@@ -476,7 +476,7 @@ def test_brightness_caption_wide_plateau_no_flag_is_ok_no_narrow_prefix():
 def test_brightness_caption_narrow_plateau_prefixes_and_warns():
     evidence = {"plateau": [203, 216], "flagged": None, "curve": [[210, 0.98]]}
     caption, bar, tone = state_text.brightness_caption(evidence, Source.DETECTED)
-    assert caption == "narrow safe range 203–216"
+    assert caption == "Narrow safe range 203–216"
     assert bar == pytest.approx(13 / 60)
     assert tone == "warn"
 
@@ -484,7 +484,7 @@ def test_brightness_caption_narrow_plateau_prefixes_and_warns():
 def test_brightness_caption_wide_plateau_but_blocking_flag_still_warns():
     evidence = {"plateau": [180, 230], "flagged": "dim-text?", "curve": [[200, 0.98]]}
     caption, bar, tone = state_text.brightness_caption(evidence, Source.DETECTED)
-    assert caption == "safe range 180–230"  # not narrow: 230-180 == 50 >= 20
+    assert caption == "Safe range 180–230"  # not narrow: 230-180 == 50 >= 20
     assert tone == "warn"
 
 
@@ -511,25 +511,25 @@ def test_brightness_caption_cheap_path_wide_plateau_reads_folder_safe_range():
     # folder's, not one measured on this file.
     evidence = {"plateau": [180, 220], "flagged": None, "curve": []}
     caption, bar, tone = state_text.brightness_caption(evidence, Source.DETECTED)
-    assert caption == "folder safe range 180–220"
+    assert caption == "Folder safe range 180–220"
     assert bar == pytest.approx(40 / 60)
     assert tone == "ok"
 
 
 def test_brightness_caption_cheap_path_narrow_plateau_has_no_narrow_prefix_but_warns():
-    # The "narrow " prefix is reserved for the per-file (full-detection)
-    # form; the cheap-path caption always reads "folder safe range ...", but
+    # The "Narrow " prefix is reserved for the per-file (full-detection)
+    # form; the cheap-path caption always reads "Folder safe range ...", but
     # still turns warn when narrow.
     evidence = {"plateau": [203, 216], "flagged": None, "curve": []}
     caption, bar, tone = state_text.brightness_caption(evidence, Source.DETECTED)
-    assert caption == "folder safe range 203–216"
+    assert caption == "Folder safe range 203–216"
     assert tone == "warn"
 
 
 def test_brightness_caption_cheap_path_missing_curve_key_is_also_cheap_path():
     evidence = {"plateau": [180, 220], "flagged": None}
     caption, _, tone = state_text.brightness_caption(evidence, Source.DETECTED)
-    assert caption == "folder safe range 180–220"
+    assert caption == "Folder safe range 180–220"
     assert tone == "ok"
 
 
@@ -552,25 +552,25 @@ def test_crop_caption_blocking_false_default_keeps_clean_evidence_ok():
 
 def test_crop_caption_manual_ignores_blocking():
     caption, bar, tone = state_text.crop_caption(None, Source.MANUAL, blocking=True)
-    assert (caption, bar, tone) == ("set by you", 1.0, "ok")
+    assert (caption, bar, tone) == ("Set by you", 1.0, "ok")
 
 
 def test_brightness_caption_blocking_forces_warn_on_wide_clean_plateau():
     evidence = {"plateau": [180, 220], "flagged": None, "curve": [[200, 0.98]]}
     caption, bar, tone = state_text.brightness_caption(evidence, Source.HINT, blocking=True)
-    assert caption == "safe range 180–220"  # blocking does not add "narrow "
+    assert caption == "Safe range 180–220"  # blocking does not add "Narrow "
     assert tone == "warn"
 
 
 def test_brightness_caption_blocking_forces_warn_on_cheap_path_too():
     evidence = {"plateau": [180, 220], "flagged": None, "curve": []}
     caption, _, tone = state_text.brightness_caption(evidence, Source.HINT, blocking=True)
-    assert caption == "folder safe range 180–220"
+    assert caption == "Folder safe range 180–220"
     assert tone == "warn"
 
 
 def test_brightness_caption_manual_ignores_blocking():
-    assert state_text.brightness_caption(None, Source.MANUAL, blocking=True) == ("set by you", 1.0, "ok")
+    assert state_text.brightness_caption(None, Source.MANUAL, blocking=True) == ("Set by you", 1.0, "ok")
 
 
 def test_ranges_caption_blocking_forces_warn_with_blocks():
@@ -579,19 +579,19 @@ def test_ranges_caption_blocking_forces_warn_with_blocks():
         {"kind": "outro", "matched_files": 4, "score": 0.96, "start_sec": 2.0, "end_sec": 3.0},
     ]}
     caption, bar, tone = state_text.ranges_caption(evidence, Source.HINT, blocking=True)
-    assert caption == "intro+outro matched in 3 episodes"
+    assert caption == "Intro+outro matched in 3 episodes"
     assert tone == "warn"
 
 
 def test_ranges_caption_blocking_forces_warn_without_blocks():
     evidence = {"blocks": []}
     caption, bar, tone = state_text.ranges_caption(evidence, Source.HINT, blocking=True)
-    assert caption == "no repeating intro/outro found"
+    assert caption == "No repeating intro/outro found"
     assert tone == "warn"
 
 
 def test_ranges_caption_manual_ignores_blocking():
-    assert state_text.ranges_caption({"blocks": []}, Source.MANUAL, blocking=True) == ("set by you", 1.0, "ok")
+    assert state_text.ranges_caption({"blocks": []}, Source.MANUAL, blocking=True) == ("Set by you", 1.0, "ok")
 
 
 # --------------------------------------------------------------------------
@@ -600,29 +600,29 @@ def test_ranges_caption_manual_ignores_blocking():
 
 def test_ranges_caption_manual_ignores_evidence():
     evidence = {"blocks": []}
-    assert state_text.ranges_caption(evidence, Source.MANUAL) == ("set by you", 1.0, "ok")
+    assert state_text.ranges_caption(evidence, Source.MANUAL) == ("Set by you", 1.0, "ok")
 
 
 def test_ranges_caption_imported_no_evidence():
     assert state_text.ranges_caption(None, Source.IMPORTED) == (
-        "imported from the previous version", 1.0, "ok")
+        "Imported from the previous version", 1.0, "ok")
 
 
 def test_ranges_caption_no_evidence_falls_back():
-    assert state_text.ranges_caption(None, None) == ("not detected yet", 0.0, "default")
+    assert state_text.ranges_caption(None, None) == ("Not detected yet", 0.0, "default")
 
 
 def test_ranges_caption_empty_blocks():
     evidence = {"blocks": []}
     assert state_text.ranges_caption(evidence, Source.DETECTED) == (
-        "no repeating intro/outro found", 0.0, "default")
+        "No repeating intro/outro found", 0.0, "default")
 
 
 def test_ranges_caption_only_repeat_kind_blocks_counts_as_no_intro_outro():
     evidence = {"blocks": [{"kind": "repeat", "matched_files": 3, "score": 0.9,
                             "start_sec": 0.0, "end_sec": 1.0}]}
     assert state_text.ranges_caption(evidence, Source.DETECTED) == (
-        "no repeating intro/outro found", 0.0, "default")
+        "No repeating intro/outro found", 0.0, "default")
 
 
 def test_ranges_caption_intro_and_outro_blocks():
@@ -633,7 +633,7 @@ def test_ranges_caption_intro_and_outro_blocks():
     caption, bar, tone = state_text.ranges_caption(evidence, Source.DETECTED)
     # n = max(matched_files) - 1 = 4 - 1 = 3 (matched_files counts this file
     # itself, per core/detect/ranges/pipeline.py's Block docstring).
-    assert caption == "intro+outro matched in 3 episodes"
+    assert caption == "Intro+outro matched in 3 episodes"
     assert bar == pytest.approx(0.98)
     assert tone == "ok"
 
@@ -644,7 +644,7 @@ def test_ranges_caption_uses_max_matched_files_and_max_score_independently():
         {"kind": "outro", "matched_files": 3, "score": 0.99, "start_sec": 2.0, "end_sec": 3.0},
     ]}
     caption, bar, tone = state_text.ranges_caption(evidence, Source.DETECTED)
-    assert caption == "intro+outro matched in 4 episodes"
+    assert caption == "Intro+outro matched in 4 episodes"
     assert bar == pytest.approx(0.99)
 
 
@@ -693,8 +693,8 @@ def test_crop_and_brightness_texts():
 
 
 @pytest.mark.parametrize("ranges, expected", [
-    (None, "whole file"),
-    (TimeRanges([], Source.MANUAL), "whole file"),
+    (None, "Whole file"),
+    (TimeRanges([], Source.MANUAL), "Whole file"),
     (TimeRanges([TimeRange("02:33", "23:05")], Source.DETECTED), "2:33 → 23:05"),
     (TimeRanges([TimeRange(None, "21:20")], Source.IMPORTED), "0:00 → 21:20"),
     (TimeRanges([TimeRange("1:02:03", None)], Source.MANUAL), "1:02:03 → end"),

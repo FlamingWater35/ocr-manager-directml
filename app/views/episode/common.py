@@ -26,10 +26,14 @@ SMALL_SIZE = tokens.FONT_SIZE_BTN_SM_BASE
 CAPTION_SIZE = 22                   # the slideshow's line text
 
 def font(size: float, weight: int | None = None) -> QFont:
-    """The theme's family stack at mockup `size` px (scaled), for painting."""
+    """The theme's family stack at mockup `size` px (scaled), for painting.
+
+    In points, never pixels: a pixel-sized `QFont` reports `pointSize() == -1`,
+    and any later round trip through Qt then calls `setPointSize(-1)` and logs
+    "QFont::setPointSize: Point size <= 0 (-1), must be greater than 0"."""
     result = QFont()
     result.setFamilies(tokens.FONT_STACK)
-    result.setPixelSize(max(1, round(tokens.pt(size))))
+    result.setPointSizeF(tokens.font_pt(tokens.pt(size)))
     if weight is not None:
         result.setWeight(QFont.Weight(weight))
     return result

@@ -212,7 +212,7 @@ def test_sheet_opens_from_the_top_bar_between_the_top_bar_and_the_activity_strip
     assert sheet.geometry().bottom() == window.activity_strip.geometry().top() - 1
     assert sheet.x() >= window.queue.mapTo(central, QPoint(window.queue.width(), 0)).x()   # queue stays visible
     assert sheet.title_label.text() == "⚙ Folder settings"
-    assert sheet.scope_label.full_text() == f"applies to all 5 files in {folder.name}"
+    assert sheet.scope_label.full_text() == f"Applies to all 5 files in {folder.name}"
     assert sheet.close_button.text() == "✕"
     assert sheet.nav.labels() == SECTIONS
     assert sheet.nav_panel.width() == tokens.px(NAV_WIDTH)
@@ -310,7 +310,7 @@ def test_sections_rows_and_explanations_follow_b9(window):
     for field in sheet.fields():
         note = sheet.note(field)
         assert note and "\n" not in note, field
-    assert sheet.note("conf_threshold") == "retry until this confident"
+    assert sheet.note("conf_threshold") == "Retry until this confident"
     assert sheet.section_note("What to extract") == \
         "With labels off, the label mask regions and their thresholds are hidden entirely."
 
@@ -630,12 +630,12 @@ def test_the_subfolder_toggle_moves_the_queues_done_badges(make_window, folder):
     window = make_window(folder)
     window.show()
     row = window.queue.row("ep01.mkv")
-    assert row.badge.text() == "done"
+    assert row.badge.text() == "Done"
     sheet = open_sheet(window)
     enter(sheet, "output_subfolder", False)                          # now looked for next to the video
-    assert wait_for(lambda: window.queue.row("ep01.mkv").badge.text() != "done")
+    assert wait_for(lambda: window.queue.row("ep01.mkv").badge.text() != "Done")
     enter(sheet, "output_subfolder", True)
-    assert wait_for(lambda: window.queue.row("ep01.mkv").badge.text() == "done")
+    assert wait_for(lambda: window.queue.row("ep01.mkv").badge.text() == "Done")
 
 
 def test_scrolling_over_an_unfocused_editor_does_not_change_it(window):
@@ -709,12 +709,12 @@ def test_turning_off_the_last_extraction_is_refused_with_a_warning(window, turn_
 def test_file_count_follows_files_changed(window, folder):
     sheet = open_sheet(window)
     (folder / "ep06.mkv").write_bytes(b"placeholder video")
-    assert wait_for(lambda: sheet.scope_label.full_text() == f"applies to all 6 files in {folder.name}")
+    assert wait_for(lambda: sheet.scope_label.full_text() == f"Applies to all 6 files in {folder.name}")
     for name in NAMES[:4]:
         (folder / name).unlink()
-    assert wait_for(lambda: sheet.scope_label.full_text() == f"applies to all 2 files in {folder.name}")
+    assert wait_for(lambda: sheet.scope_label.full_text() == f"Applies to all 2 files in {folder.name}")
     (folder / NAMES[4]).unlink()
-    assert wait_for(lambda: sheet.scope_label.full_text() == f"applies to the 1 file in {folder.name}")
+    assert wait_for(lambda: sheet.scope_label.full_text() == f"Applies to the 1 file in {folder.name}")
 
 
 def test_space_and_t_never_reach_the_queue_shortcuts_from_the_sheet(window):

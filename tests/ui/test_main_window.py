@@ -240,11 +240,11 @@ def menu_actions(menu) -> dict:
 def test_window_shows_counts_start_and_fixed_columns(slay_window):
     window = slay_window
     top = window.topbar
-    assert top.reviewed_chip.text() == "5 reviewed"
+    assert top.reviewed_chip.text() == "5 Reviewed"
     assert top.reviewed_chip.tone() == "ok"
-    assert top.needs_chip.text() == "0 needs you"
+    assert top.needs_chip.text() == "0 Needs you"
     assert top.needs_chip.tone() == "warn"
-    assert top.detecting_chip.text() == "0 detecting"
+    assert top.detecting_chip.text() == "0 Detecting"
     assert top.start_button.text() == "▶ Start 5 ready files"
     assert top.start_button.isEnabled()
     assert top.settings_button.text() == "⚙ Folder settings"
@@ -264,7 +264,7 @@ def test_window_shows_counts_start_and_fixed_columns(slay_window):
     assert window.queue.visible_names() == SLAY_NAMES
     assert window.queue.selected() == SLAY_NAMES[0]
     row = window.queue.row(SLAY_NAMES[0])
-    assert (row.badge.text(), row.badge.property("badge")) == ("reviewed", "good")
+    assert (row.badge.text(), row.badge.property("badge")) == ("Reviewed", "good")
     assert row.duration_label.text() == "23:38"
 
 
@@ -338,7 +338,7 @@ def test_a_window_over_an_already_open_controller_shows_its_folder(controller, m
     assert window.queue.names() == SLAY_NAMES
     assert window.queue.selected() == SLAY_NAMES[0]
     assert window.inspector.file_label.full_text() == SLAY_NAMES[0]
-    assert window.topbar.reviewed_chip.text() == "5 reviewed"
+    assert window.topbar.reviewed_chip.text() == "5 Reviewed"
 
 
 def test_flagging_a_file_updates_chips_badge_and_start(detected_window, fake_runner):
@@ -357,24 +357,24 @@ def test_flagging_a_file_updates_chips_badge_and_start(detected_window, fake_run
     fake_runner.finish(crop, crop_result(crop, flagged=FLAG_LOW_AGREEMENT))
     controller.drain_events()
     settle()
-    assert row.badge.text() == "waiting"                   # brightness follows the re-detect, queued
-    assert top.detecting_chip.text() == "1 detecting"
+    assert row.badge.text() == "Waiting"                   # brightness follows the re-detect, queued
+    assert top.detecting_chip.text() == "1 Detecting"
     assert top.detecting_chip.tone() == "idle"             # B7: only queued
 
     brightness = fake_runner.last("brightness", name)
     fake_runner.start(brightness)                           # "started" emits only activity_changed
     controller.drain_events()
     settle()
-    assert row.badge.text() == "measuring brightness…"
+    assert row.badge.text() == "Measuring brightness…"
     assert top.detecting_chip.tone() == "run"
 
     fake_runner.finish(brightness, brightness_result(brightness))
     controller.drain_events()
     settle()
-    assert (row.badge.text(), row.badge.property("badge")) == ("check crop", "warn")
-    assert top.reviewed_chip.text() == "4 reviewed"
-    assert top.needs_chip.text() == "1 needs you"
-    assert top.detecting_chip.text() == "0 detecting"
+    assert (row.badge.text(), row.badge.property("badge")) == ("Check crop", "warn")
+    assert top.reviewed_chip.text() == "4 Reviewed"
+    assert top.needs_chip.text() == "1 Needs you"
+    assert top.detecting_chip.text() == "0 Detecting"
     assert top.start_button.text() == "▶ Start 4 ready files"
     assert window.queue.filter.labels() == ["All 5", "Needs you 1", "Reviewed 4"]
 
@@ -435,7 +435,7 @@ def test_queue_filter_counts_and_filtering(mixed_window):
     queue = mixed_window.queue
     assert queue.filter.labels() == ["All 5", "Needs you 1", "Reviewed 2"]
     assert [queue.row(name).badge.text() for name in queue.visible_names()] == [
-        "reviewed", "check crop", "ready", "reviewed", "skipped"]
+        "Reviewed", "Check crop", "Ready", "Reviewed", "Skipped"]
     segments = queue.filter.findChildren(QPushButton)
 
     segments[1].click()
@@ -504,7 +504,7 @@ def test_queue_keyboard_moves_marks_and_proves(slay_window, fake_runner):
     QTest.keyClick(queue, Qt.Key.Key_Space)                 # reviewed -> not reviewed
     assert marks.calls == [(SLAY_NAMES[0], False)]
     assert controller.entry(SLAY_NAMES[0]).review != ReviewState.REVIEWED
-    assert queue.row(SLAY_NAMES[0]).badge.text() == "ready"
+    assert queue.row(SLAY_NAMES[0]).badge.text() == "Ready"
     QTest.keyClick(queue, Qt.Key.Key_Space)
     assert marks.calls[-1] == (SLAY_NAMES[0], True)
     assert controller.entry(SLAY_NAMES[0]).review == ReviewState.REVIEWED
@@ -581,7 +581,7 @@ def test_context_menu_offers_b11_actions_and_invokes_commands(slay_window, fake_
     assert marks.calls == [(name, False)]
     actions["Skip file"].trigger()
     assert skips.calls == [(name, True)]
-    assert queue.row(name).badge.text() == "skipped"
+    assert queue.row(name).badge.text() == "Skipped"
 
     actions = menu_actions(queue.context_menu(name))
     assert "Mark reviewed" in actions and "Include file" in actions
@@ -677,15 +677,15 @@ def test_selecting_a_file_updates_the_inspector_header_and_detected_rows(slay_wi
     assert inspector.file_label.full_text() == SLAY_NAMES[1]
     assert inspector.media_label.text() == "1920×888 · 27:08"            # fps unknown: omitted
     assert inspector.crop_row.value() == "288, 784 · 1344 × 55"
-    assert inspector.crop_conf.caption() == "imported from the previous version"
+    assert inspector.crop_conf.caption() == "Imported from the previous version"
     assert inspector.brightness_row.value() == "209"
     assert inspector.window_row.value() == "2:33 → 23:05"
     assert inspector.review_button.text() == "Mark not reviewed"
     assert inspector.skip_button.text() == "Skip file"
 
     window.controller.set_time_ranges(SLAY_NAMES[1], None)               # "Use whole file": an empty MANUAL list
-    assert inspector.window_row.value() == "whole file"
-    assert inspector.window_conf.caption() == "set by you"
+    assert inspector.window_row.value() == "Whole file"
+    assert inspector.window_conf.caption() == "Set by you"
 
 
 def test_inspector_detected_rows_show_flagged_values_in_warn(mixed_window):
@@ -804,7 +804,7 @@ def test_t_is_not_offered_before_the_file_has_been_scanned(make_window, tmp_proj
 def test_activity_strip_follows_running_events(slay_window, fake_runner):
     window, controller = slay_window, slay_window.controller
     strip = window.activity_strip
-    assert strip.text_label.text() == "idle"
+    assert strip.text_label.text() == "Idle"
     assert strip.progress.isHidden()
 
     name = SLAY_NAMES[4]
@@ -812,7 +812,7 @@ def test_activity_strip_follows_running_events(slay_window, fake_runner):
     fake_runner.start(audio)
     controller.drain_events()
     assert strip.dot.property("tone") == "run"
-    assert strip.text_label.text() == f"{name} · audio analysis"
+    assert strip.text_label.text() == f"{name} · Audio analysis"
     assert not strip.progress.isHidden() and strip.progress.is_indeterminate()
     assert strip.percent_label.isHidden()
 
@@ -824,9 +824,9 @@ def test_activity_strip_follows_running_events(slay_window, fake_runner):
 
     fake_runner.finish(audio, None)
     controller.drain_events()
-    assert strip.text_label.text() == "idle"
+    assert strip.text_label.text() == "Idle"
     assert strip.dot.property("tone") == "idle"
-    assert strip.recent_label.text() == "· audio analysis done 0 s ago"
+    assert strip.recent_label.text() == "· Audio analysis done 0 s ago"
 
 
 def test_pause_autopilot_toggles(slay_window):
@@ -1423,7 +1423,7 @@ def test_long_file_names_do_not_widen_the_activity_strip(make_window, tmp_projec
     window.controller.drain_events()
     settle()
     strip = window.activity_strip
-    assert strip.text_label.full_text() == f"{name} · metadata"
+    assert strip.text_label.full_text() == f"{name} · Metadata"
     assert strip.minimumSizeHint().width() < 400
     fake_runner.finish(submission, None)
     window.controller.drain_events()

@@ -133,6 +133,16 @@ def screen_mode(entry, states: list[tuple[str, str]]) -> str:
     return MODE_READY
 
 
+def _mid_sentence(text: str) -> str:
+    """The flag wording for use after a colon: "Subtitle area: few frames agreed".
+
+    The flag tables spell each reason as a standalone phrase, so they open with
+    a capital. Here they continue a sentence, which is the one place a lower
+    case first letter is right.
+    """
+    return text[:1].lower() + text[1:] if text else text
+
+
 def flag_reasons(entry) -> list[str]:
     """Why a flagged episode needs a look, one line a field, in review copy."""
     reasons = []
@@ -143,11 +153,11 @@ def flag_reasons(entry) -> list[str]:
         reasons.append("Subtitle area: none found yet")
     elif field_blocking(entry, "crop"):
         summary = crop_flag_summary(entry.flags.get("crop"))
-        reasons.append(f"Subtitle area: {summary[0] if summary else 'needs a look'}")
+        reasons.append(f"Subtitle area: {_mid_sentence(summary[0]) if summary else 'needs a look'}")
     if "brightness" in missing and "crop" not in missing:
         reasons.append("Subtitle brightness: not measured")
     elif field_blocking(entry, "brightness"):
-        reasons.append(f"Subtitle brightness: {brightness_flag_text(entry.flags.get('brightness')) or 'needs a look'}")
+        reasons.append(f"Subtitle brightness: {_mid_sentence(brightness_flag_text(entry.flags.get('brightness'))) or 'needs a look'}")
     if field_blocking(entry, "ranges"):
         reasons.append("Time ranges: need a look")
     return reasons or ["Something needs a look"]

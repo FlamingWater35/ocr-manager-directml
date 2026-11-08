@@ -250,7 +250,7 @@ def test_prepare_all_green(qapp):
     view.set_file(NAME)
     assert view.mode() == MODE_READY
     assert view.headline.text() == HEADLINE_READY
-    assert view.subline.text() == "Found the subtitles and tuned the brightness · about 6 min on this computer"
+    assert view.subline.text() == "Found the subtitles and tuned the brightness · About 6 min on this computer"
     assert view.seed_note.text() == "Starting from EP05's settings"
     assert view.start_button.isEnabled()
     assert view.primary_button() is view.start_button
