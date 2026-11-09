@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QUrl
+from PyQt6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -78,7 +78,10 @@ def cache_root() -> Path:
 
 
 def listing(folder: Path) -> list[str]:
-    return sorted(str(path.relative_to(folder)) for path in folder.rglob("*"))
+    """Every path under `folder`, relative to it, with "/" separators on
+    every OS: the assertions below spell the expected paths that way, and
+    `str(PurePath)` on Windows would say "zh\\EP06.zh.ass" instead."""
+    return sorted(path.relative_to(folder).as_posix() for path in folder.rglob("*"))
 
 
 @pytest.fixture
@@ -108,15 +111,6 @@ def save_episode(video: Path, entry: FileEntry, **folder) -> None:
     folder.setdefault("labels_enabled", False)
     save_project(Project(path=str(video.parent), folder=FolderSettings(**folder), files={entry.name: entry},
                          layout=layout))
-
-
-@pytest.fixture(autouse=True)
-def settings_dir(tmp_path):
-    path = tmp_path / "qsettings"
-    path.mkdir()
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        QSettings.setPath(fmt, QSettings.Scope.UserScope, str(path))
-    return path
 
 
 @pytest.fixture

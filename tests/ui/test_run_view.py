@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton
 
@@ -92,15 +92,6 @@ class Recorder:
             return original(*args, **kwargs)
 
         setattr(controller, name, wrapper)
-
-
-@pytest.fixture(autouse=True)
-def settings_dir(tmp_path):
-    path = tmp_path / "qsettings"
-    path.mkdir()
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        QSettings.setPath(fmt, QSettings.Scope.UserScope, str(path))
-    return path
 
 
 @pytest.fixture
@@ -658,6 +649,38 @@ def test_parse_gpu_utilisation():
 HEADER = '"t","\\HOST\\GPU Engine(pid_1_engtype_3D)\\Utilization Percentage"'
 
 
+def _qprocess_can_start() -> bool:
+    """Whether this machine can start a QProcess at all.
+
+    Qt's Windows backend starts a child through its own stdio pipes, and a
+    confinement that blocks named-pipe creation makes every `start()` fail
+    with "QProcess: CreateFile failed. (Access is denied.)" and
+    FailedToStart. The GPU meter is entirely QProcess-driven, so the two
+    tests that assert it polls cannot run there -- they would be asserting
+    about a capability the sandbox removed, not about the meter. A real
+    desktop (and the release build's own smoke test) has it.
+    """
+    from PyQt6.QtCore import QCoreApplication, QProcess
+
+    app = QCoreApplication.instance()
+    process = QProcess()
+    errors = []
+    process.errorOccurred.connect(errors.append)
+    process.start(sys.executable, ["-c", "pass"])
+    finished = process.waitForFinished(20000)
+    process.kill()
+    process.waitForFinished(2000)
+    del app
+    return finished and process.exitStatus() == QProcess.ExitStatus.NormalExit and not errors
+
+
+QPROCESS_AVAILABLE = _qprocess_can_start()
+NEEDS_QPROCESS = pytest.mark.skipif(
+    not QPROCESS_AVAILABLE,
+    reason="this machine cannot start a QProcess (Qt's stdio pipes are blocked), "
+           "and the GPU meter is QProcess-only")
+
+
 def fake_typeperf(monkeypatch, tmp_path: Path, body: str, *, args_record: Path | None = None) -> Path:
     """A stand-in for typeperf that runs `body` as a script.
 
@@ -680,6 +703,7 @@ def sample(*values: str) -> str:
     return f"print({HEADER!r})\n" + "".join(f"print({value!r})\n" for value in values)
 
 
+@NEEDS_QPROCESS
 def test_gpu_text_is_shown_while_the_run_view_shows_an_active_run(window, fake_runner, monkeypatch, tmp_path):
     arguments_file = tmp_path / "args.txt"
     fake_typeperf(monkeypatch, tmp_path, sample('"t","74.000000"'), args_record=arguments_file)
@@ -704,6 +728,7 @@ def test_gpu_text_is_shown_while_the_run_view_shows_an_active_run(window, fake_r
 
 @pytest.mark.parametrize("body", [None, "raise SystemExit(3)", sample('"t","[N/A]"')],
                          ids=["missing", "exit-code", "unparsable"])
+@NEEDS_QPROCESS
 def test_gpu_text_is_hidden_when_typeperf_fails(window, fake_runner, monkeypatch, tmp_path, body):
     if body is None:
         monkeypatch.setattr(run_view_module, "GPU_PROGRAM", str(tmp_path / "no-such-typeperf"))
@@ -718,6 +743,7 @@ def test_gpu_text_is_hidden_when_typeperf_fails(window, fake_runner, monkeypatch
     assert window.run_view.gpu_label.isHidden()
 
 
+@NEEDS_QPROCESS
 def test_gpu_polls_run_every_interval_one_at_a_time(window, fake_runner, monkeypatch, tmp_path):
     fake_typeperf(monkeypatch, tmp_path, sample('"t","5.000000"'))
     monkeypatch.setattr(run_view_module, "GPU_POLL_MS", 50)

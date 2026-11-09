@@ -33,7 +33,6 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QSettings
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -304,18 +303,15 @@ def ready_entry(name: str, *, crop=BOX, ranges=()) -> FileEntry:
                      sample_time=578.0)
 
 
-@pytest.fixture(autouse=True)
-def settings_dir(tmp_path):
-    path = tmp_path / "qsettings"
-    path.mkdir()
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        QSettings.setPath(fmt, QSettings.Scope.UserScope, str(path))
-    return path
-
-
 @pytest.fixture
 def notifications(monkeypatch):
-    """notify-send never reaches the desktop from a test."""
+    """notify-send never reaches the desktop from a test.
+
+    `sys.platform` is forced to a platform that has a notifier: on Windows
+    app.notify.notify_command returns None by design, so nothing would be
+    recorded and the notification assertions below could not run. Which
+    platform gets which command is tests/test_cross_platform.py's subject.
+    """
     sent = []
 
     class Notifier:
@@ -326,9 +322,9 @@ def notifications(monkeypatch):
         sent.append(list(args))
         return Notifier()
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     return sent
-
 
 @pytest.fixture
 def controller(qapp, fake_runner):
@@ -481,13 +477,15 @@ def test_main_py_launches_the_new_window(tmp_path):
     folder.mkdir()
     (folder / "ep01.mkv").write_bytes(b"placeholder video 1")
     (folder / "ep02.mkv").write_bytes(b"placeholder video 2")     # two: a folder, not an episode
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", XDG_CONFIG_HOME=str(tmp_path / "config"))
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", OCR_MANAGER_SETTINGS_DIR=str(settings))
     result = subprocess.run([sys.executable, str(REPO_ROOT / "main.py"), str(folder), "--quit-after", "1"],
                             cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, timeout=120,
                             check=False)
     assert result.returncode == 0, result.stderr[-2000:]
     assert (folder / ".ocr.json").exists()              # the folder really opened
-    assert (tmp_path / "config" / "OCRManager" / "OCRTool.conf").exists()
+    assert (settings / "OCRTool.ini").exists()
 
 
 def test_main_py_opens_a_video_argument_as_an_episode(tmp_path):
@@ -498,7 +496,9 @@ def test_main_py_opens_a_video_argument_as_an_episode(tmp_path):
     video = folder / "EP06.mkv"
     video.write_bytes(b"placeholder video")
     cache = tmp_path / "cache"
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", XDG_CONFIG_HOME=str(tmp_path / "config"),
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", OCR_MANAGER_SETTINGS_DIR=str(settings),
                OCR_MANAGER_CACHE_DIR=str(cache))
     result = subprocess.run([sys.executable, str(REPO_ROOT / "main.py"), str(video), "--quit-after", "1"],
                             cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, timeout=120,
@@ -511,7 +511,7 @@ def test_main_py_opens_a_video_argument_as_an_episode(tmp_path):
 
 def test_main_py_and_python_m_app_both_describe_themselves(tmp_path):
     """--help names whichever way the app was started."""
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", XDG_CONFIG_HOME=str(tmp_path / "config"))
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
 
     def usage(args):
         result = subprocess.run([sys.executable, *args, "--help"], cwd=str(REPO_ROOT), env=env,
@@ -802,7 +802,7 @@ def test_window_geometry_is_remembered(make_window, controller):
     window.resize(1100, 720)
     window.close()
     settle()
-    saved = QSettings("OCRManager", "OCRTool").value("window/geometry")
+    saved = open_folder_module.app_settings().value("window/geometry")
     assert saved is not None and not saved.isEmpty()
 
     reopened = MainWindow(controller)

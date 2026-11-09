@@ -14,7 +14,7 @@ import dataclasses
 import time
 
 import pytest
-from PyQt6.QtCore import QPoint, QPointF, QSettings, Qt
+from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QDoubleSpinBox, QSpinBox
@@ -106,15 +106,6 @@ class Recorder:
 
     def kwargs(self) -> list[dict]:
         return [kwargs for _args, kwargs in self.calls]
-
-
-@pytest.fixture(autouse=True)
-def settings_dir(tmp_path):
-    path = tmp_path / "qsettings"
-    path.mkdir()
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        QSettings.setPath(fmt, QSettings.Scope.UserScope, str(path))
-    return path
 
 
 @pytest.fixture

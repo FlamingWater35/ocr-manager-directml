@@ -42,9 +42,16 @@ Fonts/
 *.mkv
 *.mp4
 *.eng.ass
+*.zh.ass
 *.md
 !README.md
 !AGENTS.md
+
+# Real-world test media (the two 4K clips and the .ass files beside them):
+# large, and not ours to redistribute. tests/ synthesizes its own clips, so a
+# checkout without this folder still runs everything except the tests that
+# need a real file (they skip).
+/test_media/
 
 # OS
 .DS_Store

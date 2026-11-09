@@ -134,17 +134,12 @@ class Calls:
         setattr(controller, name, wrapper)
 
 
-@pytest.fixture(autouse=True)
-def settings_dir(tmp_path):
-    path = tmp_path / "qsettings"
-    path.mkdir()
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        QSettings.setPath(fmt, QSettings.Scope.UserScope, str(path))
-    return path
-
-
 def app_settings() -> QSettings:
-    return QSettings("OCRManager", "OCRTool")
+    """The window's own settings, wherever the app puts them for this test
+    (tests/ui/conftest.py's autouse `settings_dir` points them at a temp INI
+    file). Constructing `QSettings("OCRManager", "OCRTool")` here instead
+    would reach the real Windows registry."""
+    return open_folder_module.app_settings()
 
 
 @pytest.fixture
@@ -252,7 +247,10 @@ def test_window_shows_counts_start_and_fixed_columns(slay_window):
     assert top.run_switch.isHidden()
     folder = window.controller.project.path
     assert top.project_label.text() == os.path.basename(folder)
-    assert top.path_label.text() == f"· {folder}"
+    # full_text(), not text(): the label elides to its width, and how many
+    # characters survive depends on the font the platform resolved. What the
+    # window shows is the whole path, elided or not.
+    assert top.path_label.full_text() == f"· {folder}"
     assert window.windowTitle() == f"OCR Manager — {os.path.basename(folder)}"
     # The tokens, never the numbers: the rail and the inspector are the
     # mockup's 246 and 322 px at the current UI scale, and a literal put back
@@ -900,7 +898,15 @@ def test_choose_folder_uses_the_qt_picker_without_kdialog(make_window, tmp_proje
     assert window.controller.project.path == str(folder)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a shell-script kdialog")
 def test_choose_folder_runs_kdialog_from_the_last_path(make_window, tmp_project, tmp_path, monkeypatch):
+    """kdialog, when it is installed, is started at the last path.
+
+    POSIX only: the fake is a `#!/bin/sh` script, and `shutil.which` skips
+    extensionless files on Windows, so the real (blocking) QFileDialog would
+    run instead. tests/ui/test_parity.py covers the same call with a
+    monkeypatched QProcess, which is platform-neutral.
+    """
     folder = tmp_project(fixture="slay")
     last = tmp_project(["x.mkv"])
     app_settings().setValue("project/last_path", str(last))
@@ -1153,11 +1159,13 @@ def test_ctrl_q_closes_and_close_shuts_the_controller_down(controller, fake_runn
 def test_python_m_app_smoke(tmp_path):
     """A real launch in its own process: its theme, settings and hook never
     touch this test session."""
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", XDG_CONFIG_HOME=str(tmp_path / "config"))
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", OCR_MANAGER_SETTINGS_DIR=str(settings))
     result = subprocess.run([sys.executable, "-m", "app", "--quit-after", "1"], cwd=str(REPO_ROOT), env=env,
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr[-2000:]
-    assert (tmp_path / "config" / "OCRManager" / "OCRTool.conf").exists()     # geometry saved there
+    assert (settings / "OCRTool.ini").exists()                # geometry saved there
 
 
 def test_main_restores_the_excepthook(qapp, monkeypatch):

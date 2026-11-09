@@ -47,6 +47,12 @@ from app.widgets.base import Badge, Button, ElidedLabel, SectionHeader
 
 SETTINGS_ORGANIZATION = "OCRManager"
 SETTINGS_APPLICATION = "OCRTool"
+# Points the settings at an INI file under this directory instead of the
+# platform store. Windows has no per-run scoping for QSettings' native store
+# (the registry: `QSettings.setPath` has no effect on NativeFormat), so the
+# tests and the headless CI modes -- which must never touch a user's real
+# settings -- use this. See app_settings().
+SETTINGS_DIR_ENV = "OCR_MANAGER_SETTINGS_DIR"
 LAST_PATH_KEY = "project/last_path"
 RECENTS_KEY = "project/recents"
 PICKER_CAPTION = "Select Project Directory"
@@ -69,8 +75,22 @@ QT_VIDEO_FILTER = "Videos (" + " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS) +
 
 
 def app_settings() -> QSettings:
-    """The settings today's window uses (geometry, last folder)."""
-    return QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    """The settings today's window uses (geometry, last folder).
+
+    Normally the platform's own store: the Windows registry, under
+    ``HKEY_CURRENT_USER\\Software\\OCRManager\\OCRTool``. Windows has no
+    other one -- ``QSettings.setPath`` is documented for the INI format and
+    has no effect on ``NativeFormat`` -- so a process that must keep its
+    settings to itself (the tests, and any CI mode) sets
+    ``$OCR_MANAGER_SETTINGS_DIR`` and gets an INI file there instead. That is
+    the only way to scope them on this platform: without it every test run
+    would rewrite the developer's real last path, recents and window
+    geometry.
+    """
+    directory = os.environ.get(SETTINGS_DIR_ENV, "").strip()
+    if not directory:
+        return QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    return QSettings(os.path.join(directory, f"{SETTINGS_APPLICATION}.ini"), QSettings.Format.IniFormat)
 
 
 def last_path() -> str:
@@ -129,7 +149,13 @@ def is_video_file(path: str) -> bool:
 def path_from_mime(mime) -> str | None:
     """What a drag carries: exactly one local URL that is a folder or a video
     file. Anything else (several URLs, a remote URL, another file) is None,
-    so the window never accepts a drop it cannot open."""
+    so the window never accepts a drop it cannot open.
+
+    The path is normalized: `QUrl.toLocalFile()` spells a Windows path with
+    forward slashes ("C:/Users/x/ep01.mkv"), and that string would otherwise
+    be stored as the project path, the remembered last path and a recent --
+    visible in the UI, and compared against backslash paths elsewhere
+    (tests/ui/test_open_folder.py pins the normalization)."""
     if mime is None or not mime.hasUrls():
         return None
     urls = mime.urls()
@@ -138,6 +164,7 @@ def path_from_mime(mime) -> str | None:
     path = urls[0].toLocalFile()
     if not path:
         return None
+    path = os.path.normpath(path)
     return path if os.path.isdir(path) or is_video_file(path) else None
 
 

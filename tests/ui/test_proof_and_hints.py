@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -120,15 +120,6 @@ class Calls:
             return original(*args, **kwargs)
 
         setattr(controller, name, wrapper)
-
-
-@pytest.fixture(autouse=True)
-def settings_dir(tmp_path):
-    path = tmp_path / "qsettings"
-    path.mkdir()
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        QSettings.setPath(fmt, QSettings.Scope.UserScope, str(path))
-    return path
 
 
 @pytest.fixture

@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QEvent, QMimeData, QPointF, QSettings, Qt, QUrl
+from PyQt6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
 from PyQt6.QtGui import QEnterEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
@@ -45,15 +45,6 @@ def wait_for(predicate, timeout_ms: int = WAIT_MS) -> bool:
             return False
         QTest.qWait(10)
     return True
-
-
-@pytest.fixture(autouse=True)
-def settings_dir(tmp_path):
-    path = tmp_path / "qsettings"
-    path.mkdir()
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        QSettings.setPath(fmt, QSettings.Scope.UserScope, str(path))
-    return path
 
 
 @pytest.fixture

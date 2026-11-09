@@ -65,6 +65,35 @@ def _ffmpeg_on_path():
     patch.undo()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _fonts_for_the_offscreen_platform():
+    """Give Qt the system's fonts before the QApplication exists.
+
+    The offscreen platform plugin resolves fonts through Qt's own bundled
+    font directory, and the PyQt6 wheel ships it empty ("QFontDatabase:
+    Cannot find font directory .../Qt6/lib/fonts. Note that Qt no longer
+    ships fonts."). With no families at all, every `QFontMetrics` answer is a
+    fallback's: 40 characters measured 480 px here against 280 px with real
+    fonts, so the layout tests -- which assert that a tab fits the width the
+    shell gives it -- failed for a reason that has nothing to do with the
+    layout.
+
+    `$QT_QPA_FONTDIR` is the offscreen plugin's own hook and is read when the
+    platform plugin is created, hence a session fixture that runs before the
+    `qapp` fixture (autouse fixtures are set up first). Set explicitly by the
+    caller, it is left alone.
+    """
+    if os.environ.get("QT_QPA_FONTDIR"):
+        yield
+        return
+    candidates = [Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts",
+                  Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "Fonts"]
+    for folder in candidates:
+        if folder.is_dir() and any(folder.glob("*.ttf")):
+            os.environ["QT_QPA_FONTDIR"] = str(folder)
+            break
+    yield
+
 def _run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True, capture_output=True)
 

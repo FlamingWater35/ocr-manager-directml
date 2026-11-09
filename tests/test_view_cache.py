@@ -28,6 +28,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import fs_denial
+
 from core.jobs.view_cache import (
     FORMAT_VERSION,
     FRAME_QUALITY,
@@ -374,39 +376,36 @@ def test_a_video_that_cannot_be_stat_d_is_not_readable(tmp_path):
 # Failing I/O degrades, it never raises
 # --------------------------------------------------------------------------
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
-def test_a_project_that_cannot_be_written_to_degrades_to_a_miss(tmp_path):
+def test_a_project_that_cannot_be_written_to_degrades_to_a_miss(tmp_path, monkeypatch):
     """A read-only mount or a full disk must cost nothing but the decode it
-    was costing before the cache existed."""
+    was costing before the cache existed.
+
+    The failure is injected at os.replace (the last step of every cache
+    write), not arranged with chmod: on Windows chmod cannot deny the owner,
+    so a chmod-based version of this test asserts nothing there. See
+    tests/fs_denial.py."""
     project = tmp_path / "read-only"
     project.mkdir()
     _video(project)
-    project.chmod(0o500)
-    try:
-        cache = _cache(project)
+    fs_denial.deny_writes(project, monkeypatch)
+    cache = _cache(project)
 
-        assert cache.readable is True                            # the video itself is fine
-        assert cache.write_frame(1.0, _noise(32, 32)) is False
-        assert cache.write_strip(BOX, 1.0, _subtitle_strip()) is False
-        assert cache.read_frame(1.0) is None
-        assert cache.trim(Wanted((), None, ())) == 0
-    finally:
-        project.chmod(0o700)
+    assert cache.readable is True                                # the video itself is fine
+    assert cache.write_frame(1.0, _noise(32, 32)) is False
+    assert cache.write_strip(BOX, 1.0, _subtitle_strip()) is False
+    assert cache.read_frame(1.0) is None
+    assert cache.trim(Wanted((), None, ())) == 0
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
-def test_a_cache_directory_that_cannot_be_written_to_degrades_to_a_miss(tmp_path):
+def test_a_cache_directory_that_cannot_be_written_to_degrades_to_a_miss(tmp_path, monkeypatch):
     """The project is writable but its view directory is not: same answer."""
     _video(tmp_path)
     cache = _cache(tmp_path)
     cache.write_frame(1.0, _noise(32, 32))
-    directory = view_dir(_cache_dir(tmp_path), NAME)
-    directory.chmod(0o500)
-    try:
-        assert cache.write_frame(2.0, _noise(32, 32)) is False
-        assert cache.read_frame(1.0) is not None                 # reading still works
-    finally:
-        directory.chmod(0o700)
+    fs_denial.deny_writes(view_dir(_cache_dir(tmp_path), NAME), monkeypatch)
+
+    assert cache.write_frame(2.0, _noise(32, 32)) is False
+    assert cache.read_frame(1.0) is not None                     # reading still works
 
 
 def test_a_corrupt_image_reads_as_a_miss(tmp_path):
@@ -609,18 +608,15 @@ def test_prune_without_a_view_directory_does_nothing(tmp_path):
     assert not (tmp_path / ".ocr-cache" / "view").exists()
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
-def test_prune_that_cannot_delete_reports_what_it_managed(tmp_path):
+def test_prune_that_cannot_delete_reports_what_it_managed(tmp_path, monkeypatch):
     """A read-only cache is one more thing that costs a decode, not a
-    failure."""
+    failure. Injected at shutil.rmtree rather than arranged with chmod, which
+    on Windows cannot deny the owner -- see tests/fs_denial.py."""
     first = _warm(tmp_path, "Episode 01.mkv")
-    view = first.parent
-    view.chmod(0o500)
-    try:
-        assert prune(str(tmp_path), []) == 0
-        assert first.exists()
-    finally:
-        view.chmod(0o700)
+    fs_denial.deny_rmtree(monkeypatch)
+
+    assert prune(str(tmp_path), []) == 0
+    assert first.exists()
 
 
 # --------------------------------------------------------------------------

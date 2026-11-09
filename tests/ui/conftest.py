@@ -45,6 +45,30 @@ def qapp() -> QApplication:
 
 
 @pytest.fixture(autouse=True)
+def settings_dir(tmp_path, monkeypatch):
+    """Point the app's QSettings at a per-test INI file.
+
+    Every test module here used to do this itself with
+    `QSettings.setPath(...)` for both formats. On Windows that is a no-op:
+    the native store is the registry, `setPath` is documented for the INI
+    format only, and `QSettings("OCRManager", "OCRTool")` therefore wrote
+    straight into `HKEY_CURRENT_USER\\Software\\OCRManager\\OCRTool` -- so a
+    test run rewrote the developer's real last path, recents and window
+    geometry, and the next test read the previous test's leftovers.
+
+    `$OCR_MANAGER_SETTINGS_DIR` is the app's own override (see
+    app.views.open_folder.app_settings), so the tests scope their settings
+    the way a CI mode does, on every platform. Autouse and here rather than
+    per module, because a module that forgets it is a module that pollutes
+    the machine.
+    """
+    path = tmp_path / "qsettings"
+    path.mkdir()
+    monkeypatch.setenv("OCR_MANAGER_SETTINGS_DIR", str(path))
+    return path
+
+
+@pytest.fixture(autouse=True)
 def _delete_leaked_top_level_widgets():
     """Delete the top-level widgets a test leaves behind.
 

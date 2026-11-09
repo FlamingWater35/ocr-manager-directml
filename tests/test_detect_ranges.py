@@ -1092,7 +1092,11 @@ def test_file_identity_is_stable_and_sees_size_and_mtime(tmp_path):
     _write_bytes(p, small, 1_600_000_000_000_000_000)
     first = pl.file_identity(str(p))
     assert all(pl.file_identity(str(p)) == first for _ in range(3))
-    os.utime(p, ns=(1_600_000_000_000_000_001,) * 2)
+    # A millisecond, not a nanosecond: NTFS stores times in 100 ns units and
+    # drops the sub-unit part, so +1 ns round-trips to the same st_mtime_ns
+    # and nothing changed. Any mtime the filesystem really records is what
+    # file_identity is supposed to see.
+    os.utime(p, ns=(1_600_000_000_000_000_000 + 1_000_000,) * 2)
     assert pl.file_identity(str(p)) != first
     q = tmp_path / "small2.mkv"
     _write_bytes(q, small + b"\0", 1_600_000_000_000_000_000)
@@ -1257,6 +1261,28 @@ def test_cancel_raises_and_fewer_than_two_files_is_empty(synthetic_episodes, tmp
     assert pl.analyse(_entries(synthetic_episodes[:1]), _SYNTH_CFG, cache_dir=None, workers=1) == {}
 
 
+def _pool_works() -> bool:
+    """Whether this machine can start a ProcessPoolExecutor at all.
+
+    It cannot under a confinement that denies the child-process handles the
+    spawn start method needs: `ProcessPoolExecutor` then raises
+    PermissionError [WinError 5], `analyse` logs "Process pool could not
+    start" and fingerprints serially. The fallback is correct behaviour, so
+    the tests that *measure* pooled behaviour need this; the tests that
+    inject a fake executor do not.
+    """
+    try:
+        with pl.ProcessPoolExecutor(max_workers=1, mp_context=pl._pool_context()) as pool:
+            return list(pool.map(abs, [-1])) == [1]
+    except (ValueError, OSError, BrokenProcessPool):
+        return False
+
+
+POOL_WORKS = _pool_works()
+NEEDS_POOL = pytest.mark.skipif(
+    not POOL_WORKS, reason="this machine cannot start a ProcessPoolExecutor")
+
+
 @pytest.mark.parametrize("exc", [
     ValueError("cannot find context for 'forkserver'"),
     OSError("could not start forkserver"),
@@ -1274,6 +1300,7 @@ def test_pool_start_failure_falls_back_to_serial_fingerprinting_with_identical_o
     """
     pooled = pl.analyse(_entries(synthetic_episodes), _SYNTH_CFG, cache_dir=None, workers=2)
     assert pooled  # the synthetic corpus really has repeats -- a non-trivial result
+    caplog.clear()   # the baseline run may itself have logged the fallback
 
     def broken_pool_context():
         raise exc
@@ -1289,11 +1316,15 @@ def test_pool_start_failure_falls_back_to_serial_fingerprinting_with_identical_o
 
 
 def test_pool_context_is_forkserver_where_there_is_one_else_spawn(monkeypatch):
-    assert pl._pool_context().get_start_method() == "forkserver"            # Linux: unchanged
-    monkeypatch.setattr(multiprocessing, "get_all_start_methods", lambda: ["spawn"])   # Windows
+    if "forkserver" in multiprocessing.get_all_start_methods():
+        assert pl._pool_context().get_start_method() == "forkserver"        # Linux: unchanged
+    else:
+        assert pl._pool_context().get_start_method() == "spawn"             # Windows: no forkserver
+    monkeypatch.setattr(multiprocessing, "get_all_start_methods", lambda: ["spawn"])   # pretend Windows
     assert pl._pool_context().get_start_method() == "spawn"
 
 
+@NEEDS_POOL
 def test_a_spawn_pool_fingerprints_like_the_forkserver_one(synthetic_episodes, monkeypatch, caplog):
     """Windows has no forkserver: the pool spawns its workers, which import
     the fingerprint module afresh. It must run (no serial-fallback warning)
@@ -1308,6 +1339,7 @@ def test_a_spawn_pool_fingerprints_like_the_forkserver_one(synthetic_episodes, m
         return real_executor(*args, mp_context=mp_context, **kwargs)
 
     monkeypatch.setattr(pl, "ProcessPoolExecutor", recording_executor)
+    caplog.clear()
     with caplog.at_level(logging.WARNING):
         spawned = pl.analyse(_entries(synthetic_episodes), _SYNTH_CFG, cache_dir=None, workers=2)
     assert methods == ["spawn"]
@@ -1373,6 +1405,7 @@ def test_pool_crash_mid_run_falls_back_only_for_unfinished_files(
     monkeypatch.setattr(fp, "fingerprint_file", counting_fingerprint_file)
     monkeypatch.setattr(pl, "ProcessPoolExecutor", lambda *a, **kw: _CrashAfterFirstExecutor())
 
+    caplog.clear()
     with caplog.at_level(logging.WARNING):
         result = pl.analyse(_entries(files2), _SYNTH_CFG, cache_dir=None, workers=2)
 

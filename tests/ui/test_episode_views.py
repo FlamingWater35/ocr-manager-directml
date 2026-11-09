@@ -12,6 +12,7 @@ when."""
 from __future__ import annotations
 
 import ast
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -631,7 +632,12 @@ def test_reset_takes_lines_the_run_reported_before_the_view_came_up(qapp):
 # --------------------------------------------------------------------------
 
 def done_view(controller: StubController, opened: list) -> DoneView:
-    view = DoneView(controller, open_url=lambda url: opened.append(url.toLocalFile()), animated=False)
+    """A DoneView whose "open in folder" records the path it was asked to
+    open. `QUrl.toLocalFile()` spells a Windows path with forward slashes,
+    which is Qt's spelling of the same path, not the app's; normpath puts it
+    back in the form the assertions compare against."""
+    view = DoneView(controller, open_url=lambda url: opened.append(os.path.normpath(url.toLocalFile())),
+                    animated=False)
     view.set_file(NAME)
     return view
 

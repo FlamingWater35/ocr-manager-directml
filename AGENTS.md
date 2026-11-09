@@ -177,6 +177,32 @@ test as the specification and read it before you work around it.
   extensionless scripts, so the real binary would run instead and the test
   would silently pass for the wrong reason.
 
+## Real-world test media (`test_media/`, git-ignored)
+
+The project keeps two real 4K clips in `test_media/`, with a competitor's OCR
+output beside each. **Read this before comparing any subtitle file in there.**
+
+| File | What it is |
+|---|---|
+| `test_video.mkv` | 349.2 s, HEVC Main 10, 3840×1640, 25 fps, bt709 **SDR** (not HDR). Has an **embedded ASS track** (`language=eng`). |
+| `test_video.ass` | 102 Chinese lines. **VideOCR Recreated's OCR output — not truth.** |
+| `test_video_2.mp4` | 17.5 s, HEVC Main, 3840×1608. **No embedded subtitle stream.** |
+| `test_video_2.zh.ass` | 11 Chinese lines (8 dialogue + 3 `{\pos(...)}` labels). VideOCR Recreated's output. |
+
+**The embedded English track in `test_video.mkv` is the ground truth** for that
+clip's text and timings — it was written by hand in Aegisub, so it is what a
+human says is on screen. `test_video.ass` is *not* that track: it is a sample of
+VideOCR Recreated's output, and the long clip's is known to have issues. Where
+they disagree, the embedded track wins; a line VideOCR Recreated missed is a
+recall failure to investigate, and a line it invented is a precision failure.
+`test_video_2.zh.ass` is the short clip's only subtitle, so it is a sample of
+expected label output rather than verified text.
+
+Re-extract the reference track with
+`bin\ffmpeg.exe -y -i test_media\test_video.mkv -map 0:s:0 -c:s copy out.ass`.
+The tests that need these clips carry the `needs_real_media` marker and skip
+when the folder is absent.
+
 ## Gotchas worth knowing before you debug
 
 - **RapidOCR builds its sub-engines lazily.** `RapidEngine.providers` is `[]`

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -185,6 +186,14 @@ def make_controller(qapp, fake_runner):
 
 @pytest.fixture
 def notifications(monkeypatch):
+    """The notification commands the controller decided to send.
+
+    `sys.platform` is forced to a platform that has a notifier: these tests
+    are about *which* notification a run end produces (title, body, urgency),
+    and on Windows `app.notify.notify_command` returns None by design, so
+    nothing would be recorded. Which platform gets which command is
+    tests/test_cross_platform.py's subject, not this file's.
+    """
     sent = []
 
     class Notifier:
@@ -195,6 +204,7 @@ def notifications(monkeypatch):
         sent.append(list(args))
         return Notifier()
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     return sent
 

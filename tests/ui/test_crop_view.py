@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import QEvent, QPointF, QRectF, QSettings, Qt
+from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QWidget
@@ -164,16 +164,6 @@ class Harness:
 
     def size_canvas(self, width: int = CANVAS_SIZE[0], height: int = CANVAS_SIZE[1]) -> None:
         self.tab.canvas.resize(width, height)
-
-
-@pytest.fixture(autouse=True)
-def settings_dir(tmp_path):
-    """No test may read or write the user's real QSettings."""
-    path = tmp_path / "qsettings"
-    path.mkdir()
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        QSettings.setPath(fmt, QSettings.Scope.UserScope, str(path))
-    return path
 
 
 @pytest.fixture

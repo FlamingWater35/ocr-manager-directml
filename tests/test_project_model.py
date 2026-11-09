@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+import fs_denial
+
 from core.project.model import (
     Brightness,
     Crop,
@@ -503,21 +505,36 @@ def test_unsupported_project_version_is_exported():
 
 
 def test_save_project_fsyncs_every_file_before_replacing_it(tmp_path, monkeypatch):
+    """Each temp file is fsynced before it is renamed onto its final name.
+
+    The fd -> path mapping is recorded when the file is opened, not recovered
+    from `/proc/self/fd` afterwards: `/proc` does not exist on Windows, which
+    is the only platform this app ships, and the mapping is exact either way.
+    """
     import os
 
     import core.project.store as store
 
     calls = []
     real_fsync, real_replace = os.fsync, os.replace
+    real_open = open
+    opened: dict[int, str] = {}
+
+    def recording_open(file, mode="r", *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        if "b" in mode and any(flag in mode for flag in "wax+"):
+            opened[handle.fileno()] = str(file)
+        return handle
 
     def fsync(fd):
-        calls.append(("fsync", os.readlink(f"/proc/self/fd/{fd}")))
+        calls.append(("fsync", opened.get(fd)))
         return real_fsync(fd)
 
     def replace(src, dst):
         calls.append(("replace", str(src), str(dst)))
         return real_replace(src, dst)
 
+    monkeypatch.setattr(store, "open", recording_open, raising=False)
     monkeypatch.setattr(store.os, "fsync", fsync)
     monkeypatch.setattr(store.os, "replace", replace)
     _touch(tmp_path / "vid.mkv")
@@ -1042,12 +1059,20 @@ def test_a_malformed_staleness_record_takes_the_corrupt_path(tmp_path, record):
 
 
 def test_a_file_name_that_is_not_utf8_loads_and_saves(tmp_path, monkeypatch):
+    """A name Python can only spell with a lone surrogate -- a byte that is
+    not UTF-8, as a damaged archive or a foreign filesystem leaves it.
+
+    Written as a literal, not `os.fsdecode(b"bad\\xffname.mkv")`: POSIX
+    decodes that with surrogateescape and Windows with surrogatepass, which
+    raises UnicodeDecodeError on the same bytes. The name itself is what the
+    store has to survive either way.
+    """
     import hashlib
     import os
 
     from core.project.store import evidence_path
 
-    name = os.fsdecode(b"bad\xffname.mkv")                                     # a surrogate-escaped name
+    name = "bad\udcffname.mkv"                                                 # a surrogate-escaped name
     (tmp_path / name).write_bytes(b"")
     _touch(tmp_path / "good.mkv")
 
@@ -1094,27 +1119,25 @@ def test_evidence_that_cannot_be_written_does_not_stop_the_values_being_saved(tm
 
 
 def test_an_unwritable_evidence_directory_does_not_stop_the_values_being_saved(tmp_path, caplog, monkeypatch):
-    import os
-
     from core.project.store import evidence_path
 
-    if os.geteuid() == 0:
-        pytest.skip("root ignores directory permissions")
     project = _evidence_project(tmp_path, ["a.mkv", "b.mkv"])
     save_project(project)
     directory = tmp_path / ".ocr-cache" / "evidence"
     project.files["a.mkv"].evidence["crop"]["agreed"] = 99                    # changed: must be written
     del project.files["b.mkv"]                                               # removed: its file must go
     project.files["a.mkv"].review = ReviewState.FLAGGED
-    directory.chmod(0o555)
-    try:
-        with caplog.at_level(logging.WARNING):
-            save_project(project)
-        config = json.loads((tmp_path / ".ocr.json").read_text(encoding="utf-8"))
-        assert list(config["files"]) == ["a.mkv"] and config["files"]["a.mkv"]["review"] == "flagged"
-        assert sum(r.levelno == logging.WARNING for r in caplog.records) >= 2      # the write and the delete
-    finally:
-        directory.chmod(0o755)
+    # Injected at os.replace/os.remove, not arranged with chmod: on Windows
+    # chmod cannot deny the owner, so a chmod-based version asserts nothing
+    # there. See tests/fs_denial.py.
+    fs_denial.deny_writes(directory, monkeypatch)
+    fs_denial.deny_removals(directory, monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        save_project(project)
+    config = json.loads((tmp_path / ".ocr.json").read_text(encoding="utf-8"))
+    assert list(config["files"]) == ["a.mkv"] and config["files"]["a.mkv"]["review"] == "flagged"
+    assert sum(r.levelno == logging.WARNING for r in caplog.records) >= 2      # the write and the delete
+    monkeypatch.undo()
     spy = _WriteSpy(monkeypatch)
     save_project(project)
     assert spy.take() == sorted([".ocr.json", evidence_path(str(tmp_path / ".ocr-cache"), "a.mkv").name])
