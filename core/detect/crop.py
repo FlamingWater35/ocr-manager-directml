@@ -247,10 +247,64 @@ BASELINE_CLUSTER_MIN_DOMINANT_SIZE = 3
 # the kept union with little to no gap; real noise measured on the
 # reference corpus sat ~2.4 line heights away, comfortably outside this.
 ADJACENT_SINGLETON_MAX_GAP_LINE_HEIGHTS = 1.0
+# A single subtitle LINE is about one line height tall. Measured on the two
+# reference clips in test_media/ (see its README.md): every real line poly
+# came out between 0.92x and 1.14x the median poly height, while the false
+# positives -- a hand silhouette the detector scored 0.85 on -- measured
+# 2.09x, 2.18x, 2.32x and 2.45x. Nothing landed between 1.14 and 2.09, so
+# this threshold has a wide margin on both sides.
+#
+# Why a height test at all, when baseline clustering already exists: the
+# false positives break clustering in two different ways, and neither is a
+# "different baseline" problem. On the long clip the silhouette sat 0.83
+# line heights above the subtitle, close enough for the adjacency
+# exception (ADJACENT_SINGLETON_MAX_GAP_LINE_HEIGHTS) to fold it in as a
+# "missing line", inflating the union to 32% of frame height and tripping
+# MAX_CROP_HEIGHT_FRAC -> box=None. On the short clip it appeared on the
+# SAME frame as the subtitle, so _per_frame_extents() unioned the two into
+# one extent whose bottom edge clusters perfectly with every other frame --
+# baseline clustering cannot see it at all. Both are poly-level problems,
+# so the filter is applied per poly, before any per-frame unioning.
+#
+# The escape hatch matters as much as the test: a genuine two-line
+# subtitle that the detector merged into ONE poly would also be ~2.3x line
+# height, and dropping it would clip the upper line -- exactly the bug the
+# adjacency exception exists to prevent. A merged two-line poly still ENDS
+# on the subtitle baseline (its lower line sits there), so a tall poly is
+# kept whenever its bottom edge agrees with the consensus baseline of the
+# normally-shaped polys. The silhouettes measured 236px and 471px above
+# that baseline, versus a 0.03-of-frame tolerance (~49px and ~48px).
+TALL_POLY_HEIGHT_RATIO = 1.6
+# Below this many in-band polys there is no "typical line height" to
+# compare against: the median would be dominated by whichever shapes
+# happened to be sampled, so a 2-of-2 sample must not filter anything.
+TALL_POLY_MIN_SAMPLES = 3
 UNIFORM_START_FRAC = 0.40
 UNIFORM_END_FRAC = 0.60
 UNIFORM_STEP_SEC = 0.5
 LOW_AGREEMENT_HITS = 3        # fewer accepted hits than this and we still flag the result
+
+# The speech-probe window is (PROBE_WINDOW_START_FRAC, PROBE_WINDOW_END_FRAC) of
+# the duration: the middle of a file, which skips a full episode's opening
+# titles and closing credits. That reasoning is about FRACTIONS, and it stops
+# working when the file is short: on a 17.4 s clip the window is 3.5 s, and
+# vad.probe_times() spaces candidates ~2.5 s apart, so it returned ONE
+# candidate and crop detection built its box from a single frame -- reported as
+# "low-agreement" (fewer than LOW_AGREEMENT_HITS contributing frames) even
+# though that one frame's box was right. Convergence needs
+# CONVERGENCE_STABLE_ROUNDS stable batches of PROBE_BATCH_SIZE probes before it
+# can stop, so a window with fewer than that many candidates can never be
+# probed to convergence at all.
+#
+# So the window is widened symmetrically about its centre, never moved, until
+# it spans at least PROBE_WINDOW_MIN_SPAN_SEC -- or the whole file, if the file
+# is shorter than that. Measured on test_media/test_video_2.mp4 (17.36 s): one
+# candidate and 1 sample at the bare fraction, 7 candidates and 7 samples with
+# the floor, box unchanged. On a 349 s clip the floor changes nothing (the
+# fractional window is already 70 s), so nothing that worked before moves.
+PROBE_WINDOW_START_FRAC = 0.40
+PROBE_WINDOW_END_FRAC = 0.60
+PROBE_WINDOW_MIN_SPAN_SEC = 25.0
 
 # CropResult.flagged reason strings.
 FLAG_NO_SPEECH = "no-speech"                        # true silence / no audio stream at all
@@ -280,15 +334,30 @@ FLAG_UNKNOWN_REJECTION = "unknown-rejection"        # structural safety net (see
                                                      # coverage, not a real detection outcome. Should
                                                      # never appear for any KNOWN no-box path; if it
                                                      # does, a specific flag is missing above it.
+FLAG_SHAPE_REJECTED = "shape-rejected?"             # one or more detections were much taller than a
+                                                     # subtitle line AND did not end on the subtitle
+                                                     # baseline, so they were excluded from the union,
+                                                     # and at least one of them OVERLAPPED the box's
+                                                     # own vertical span -- so it could have been part
+                                                     # of the same text block. See _drop_tall_polys()
+                                                     # and _shape_rejection_clear().
+FLAG_SHAPE_EXCLUDED = "shape-excluded"              # the same exclusion, but every dropped detection sat
+                                                     # ENTIRELY ABOVE the box: it cannot be a line the
+                                                     # box covers, and being over TALL_POLY_HEIGHT_RATIO
+                                                     # line heights it is not a subtitle line at all
+                                                     # (measured: a hand silhouette, a vertical
+                                                     # name-plate column). Informational -- the box is
+                                                     # what it would have been without the false
+                                                     # positive, which is why the exclusion happened.
 
 
 # Which flags leave a box safe to apply without review -- see
 # CropResult.auto_applicable for the classification of every flag.
-INFORMATIONAL_FLAGS = frozenset({FLAG_NO_SPEECH, FLAG_SPEECH_PROBES_EXHAUSTED})
+INFORMATIONAL_FLAGS = frozenset({FLAG_NO_SPEECH, FLAG_SPEECH_PROBES_EXHAUSTED, FLAG_SHAPE_EXCLUDED})
 BLOCKING_FLAGS = frozenset({
     FLAG_TOP_POSITIONED, FLAG_CEILING_EXCEEDED, FLAG_LOW_AGREEMENT, FLAG_STATIC_CONTENT,
     FLAG_WATERMARK_UNCERTAIN, FLAG_MULTIPLE_POSITIONS, FLAG_OUTLIER_DISCARDED, FLAG_CANCELLED,
-    FLAG_UNKNOWN_REJECTION,
+    FLAG_UNKNOWN_REJECTION, FLAG_SHAPE_REJECTED,
 })
 
 
@@ -422,6 +491,8 @@ class CropResult:
         | static-content?         | kept    | blocking      | Same extent in every sample over too short a span to rule out a logo or watermark. |
         | multiple-positions?     | kept    | blocking      | A second baseline cluster (a repositioned subtitle, or a lone adjacent line) was folded into the union: the box may be inflated or span two positions. |
         | outlier-discarded?      | kept    | blocking      | A hit at a baseline nothing else shared was left out. Noise or a once-seen subtitle elsewhere -- the code cannot tell, and if it was a subtitle the box misses it. |
+        | shape-rejected?         | kept    | blocking      | Detections far taller than a line that did not end on the subtitle baseline were left out, and at least one of them overlapped the box -- so the box may be missing part of that text block. See _drop_tall_polys()/_shape_rejection_clear(). |
+        | shape-excluded          | kept    | informational | The same exclusion, but every dropped detection sat entirely ABOVE the box: it is not a line the box covers, and at over TALL_POLY_HEIGHT_RATIO line heights it is not a subtitle line at all (measured: a hand silhouette, a vertical name-plate column). The box is what it would have been without the false positive. |
         | cancelled               | partial | blocking      | Probing was cut short; the box is from partial evidence and may be clipped. |
         | static-content          | None    | blocking      | Confirmed watermark; no box. |
         | ceiling-exceeded        | None    | blocking      | Union taller than MAX_CROP_HEIGHT_FRAC; no box. |
@@ -680,7 +751,14 @@ def grab_frames(video_path: str, times: list[float], band_frac: float = 0.55,
 
 def _poly_extent(poly) -> tuple[float, float, float, float, float] | None:
     """(min_x, min_y, max_x, max_y, center_y) for one polygon, or None if malformed."""
-    pts = np.asarray(poly, dtype=np.float64)
+    try:
+        pts = np.asarray(poly, dtype=np.float64)
+    except (TypeError, ValueError):
+        # A detector is an external component; anything it hands back that
+        # cannot be read as coordinates is "malformed", exactly as the
+        # docstring promises. Letting the conversion error escape turned a
+        # junk polygon into a crash of the whole crop detection.
+        return None
     if pts.ndim != 2 or pts.shape[0] == 0 or pts.shape[1] < 2:
         return None
     xs, ys = pts[:, 0], pts[:, 1]
@@ -917,6 +995,155 @@ def _baseline_cluster_union(extents: list[tuple[float, float, float, float] | No
     return union, kept_idx, position_flag
 
 
+def _tall_poly_decision(polys_per_frame, frame_h: float, cutoff_frac: float,
+                        ) -> tuple[list, float, float, float, float] | None:
+    """The thresholds _drop_tall_polys() judges with, or None when it cannot
+    judge at all (too few in-band polys, a degenerate median line height, or no
+    normally-shaped poly to take a baseline from).
+
+    Returns (parsed_frames, tall_limit, baseline, tolerance, line_height).
+    Factored out so the filtering itself and the flag's severity test
+    (_shape_rejection_clear) read the SAME decision and cannot drift apart.
+    """
+    cutoff_y = frame_h * cutoff_frac
+    parsed_frames: list[list[tuple[object, tuple[float, float, float, float, float] | None]]] = []
+    inband_heights: list[float] = []
+    for polys in polys_per_frame:
+        entries = []
+        for poly in polys:
+            parsed = _poly_extent(poly)
+            entries.append((poly, parsed))
+            if parsed is not None and parsed[4] >= cutoff_y:
+                inband_heights.append(parsed[3] - parsed[1])
+        parsed_frames.append(entries)
+
+    if len(inband_heights) < TALL_POLY_MIN_SAMPLES:
+        return None
+    line_height = median(inband_heights)
+    if line_height <= 0:
+        return None
+    tall_limit = line_height * TALL_POLY_HEIGHT_RATIO
+
+    normal_baselines = [
+        parsed[3]
+        for entries in parsed_frames
+        for _poly, parsed in entries
+        if parsed is not None and parsed[4] >= cutoff_y and parsed[3] - parsed[1] <= tall_limit
+    ]
+    if not normal_baselines:
+        # Every in-band poly is "tall", so there is no normal shape to
+        # compare against and no baseline to test against either. Filtering
+        # here would be a guess, not a measurement.
+        return None
+    return (parsed_frames, tall_limit, median(normal_baselines),
+            frame_h * BASELINE_CLUSTER_TOLERANCE_FRAC, line_height)
+
+
+def _is_tall_drop(parsed, cutoff_y: float, tall_limit: float, baseline: float,
+                  tolerance: float) -> bool:
+    """One poly's verdict: tall enough to be suspect AND off the baseline."""
+    return (parsed is not None
+            and parsed[4] >= cutoff_y
+            and parsed[3] - parsed[1] > tall_limit
+            and abs(parsed[3] - baseline) > tolerance)
+
+
+def _drop_tall_polys(polys_per_frame, frame_h: float, cutoff_frac: float,
+                     ) -> tuple[list[list], int]:
+    """Remove in-band detections that are far taller than one subtitle line
+    AND do not end on the subtitle baseline. Returns (polys_per_frame,
+    dropped_count); the frame list keeps its length, so indices into it stay
+    valid for kept_idx / frame_times.
+    See TALL_POLY_HEIGHT_RATIO for the measured basis and for why this is a
+    per-POLY test rather than something baseline clustering could do. Two
+    properties this must keep:
+
+    - Never filter on too little evidence. Under TALL_POLY_MIN_SAMPLES
+      in-band polys there is no trustworthy "typical line height", so
+      nothing is dropped.
+    - Never drop a tall poly that ends on the baseline. A genuine two-line
+      subtitle merged into a single poly is tall too, but its lower line
+      still sits on the same baseline as every one-line frame from that
+      track, which is exactly what distinguishes it from a silhouette
+      floating above the subtitle.
+
+    Deliberately NOT called by _run_round(): this is a judgement about the
+    evidence, and _run_round()'s convergence stop must keep reading the raw,
+    unfiltered union (see its docstring) or a filter could manufacture false
+    stability and stop probing early. Only the box/flag decision filters.
+
+    Measured on both reference clips: with this filter the box is
+    (576, 1428, 2688, 153) / (576, 1398, 2688, 160); with it disabled both
+    clips return box=None ("ceiling-exceeded+multiple-positions?" and
+    "ceiling-exceeded"), i.e. the false positives it removes are what used to
+    destroy the box entirely. It is not an optimisation, it is the fix.
+    """
+    decision = _tall_poly_decision(polys_per_frame, frame_h, cutoff_frac)
+    if decision is None:
+        return [list(polys) for polys in polys_per_frame], 0
+    parsed_frames, tall_limit, baseline, tolerance, line_height = decision
+    cutoff_y = frame_h * cutoff_frac
+
+    filtered: list[list] = []
+    dropped = 0
+    for entries in parsed_frames:
+        kept = []
+        for poly, parsed in entries:
+            if _is_tall_drop(parsed, cutoff_y, tall_limit, baseline, tolerance):
+                dropped += 1
+                continue
+            kept.append(poly)
+        filtered.append(kept)
+    if dropped:
+        logger.debug("crop shape filter: dropped %d detection(s) taller than %.0fpx "
+                     "(%.2fx the %.0fpx median line height) that did not end within "
+                     "%.0fpx of the %.0fpx baseline",
+                     dropped, tall_limit, TALL_POLY_HEIGHT_RATIO, line_height,
+                     tolerance, baseline)
+    return filtered, dropped
+
+
+def _shape_rejection_clear(polys_per_frame, frame_h: float, cutoff_frac: float,
+                           box: tuple[int, int, int, int] | None) -> bool:
+    """True when every poly the shape filter dropped sits ENTIRELY ABOVE the
+    box, so the drop cannot have clipped a line the box covers.
+
+    This is what separates the flag's two meanings, and it is the difference
+    between "the box may be missing a line" (blocking) and "a tall non-subtitle
+    detection was excluded, and including it would have destroyed the box"
+    (a record of what happened, not a doubt about the box).
+
+    The distinction is geometric and does not need a tuned distance: a poly
+    that overlaps the box vertically could be a taller version of the same
+    text block, so the box might be missing part of it. A poly wholly above the
+    box cannot be: the box's own top edge is the highest kept text, and a
+    subtitle line one line higher would have been kept by the baseline escape
+    hatch in _drop_tall_polys() instead of dropped.
+
+    Measured on the reference clips, the dropped silhouettes end 96px and 319px
+    above their boxes' top edges (frame heights 1640 and 1608), so both are
+    clear. With the filter disabled both clips return box=None, which is what
+    "including it" would mean.
+    """
+    if box is None:
+        return False
+    decision = _tall_poly_decision(polys_per_frame, frame_h, cutoff_frac)
+    if decision is None:
+        return False
+    parsed_frames, tall_limit, baseline, tolerance, _line_height = decision
+    cutoff_y = frame_h * cutoff_frac
+    box_top = float(box[1])
+    for entries in parsed_frames:
+        for _poly, parsed in entries:
+            if not _is_tall_drop(parsed, cutoff_y, tall_limit, baseline, tolerance):
+                continue
+            if parsed[3] > box_top:
+                # Its bottom edge is at or below the box's top: it overlaps the
+                # box, so the drop may have removed part of what the box covers.
+                return False
+    return True
+
+
 def _union_extent_detailed(polys_per_frame, frame_h: float, cutoff_frac: float,
                             sample_times: list[float] | None = None,
                             ) -> tuple[tuple[float, float, float, float] | None, list[int],
@@ -946,7 +1173,16 @@ def _union_extent_detailed(polys_per_frame, frame_h: float, cutoff_frac: float,
     so clustering doesn't change that judgement; it only matters for
     telling apart the position of a REAL, moving subtitle from noise once
     the content isn't static.
+
+    Shape filtering (_drop_tall_polys()) runs BEFORE the per-frame union
+    and therefore before clustering, because the false positives it targets
+    can defeat clustering in two different ways: a tall hit adjacent to the
+    subtitle gets folded in as a "missing line", and a tall hit on the SAME
+    frame as the subtitle is invisible to baseline clustering entirely (the
+    per-frame extent it helps build still ends on the right baseline). Frame
+    count is preserved, so `kept_idx` still indexes `polys_per_frame`.
     """
+    polys_per_frame, _dropped = _drop_tall_polys(polys_per_frame, frame_h, cutoff_frac)
     extents = _per_frame_extents(polys_per_frame, frame_h, cutoff_frac)
     accepted_idx = [i for i, e in enumerate(extents) if e is not None]
     if not accepted_idx:
@@ -1059,6 +1295,24 @@ def _uniform_probe_times(duration_sec: float, start_frac: float = UNIFORM_START_
         return []
     n_steps = int((end - start) / step_sec) + 1
     return [start + i * step_sec for i in range(n_steps) if start + i * step_sec <= end]
+
+
+def _probe_window(duration_sec: float) -> tuple[float, float]:
+    """The (start_frac, end_frac) speech-probe window for a file this long.
+
+    The middle half of the file, widened symmetrically about its centre (never
+    moved) until it spans PROBE_WINDOW_MIN_SPAN_SEC, or the whole file when the
+    file is shorter. See PROBE_WINDOW_MIN_SPAN_SEC for why a purely fractional
+    window fails on short clips.
+    """
+    lo, hi = PROBE_WINDOW_START_FRAC, PROBE_WINDOW_END_FRAC
+    if duration_sec <= 0:
+        return (lo, hi)
+    if duration_sec * (hi - lo) >= PROBE_WINDOW_MIN_SPAN_SEC:
+        return (lo, hi)
+    half = min(1.0, PROBE_WINDOW_MIN_SPAN_SEC / duration_sec) / 2.0
+    centre = (lo + hi) / 2.0
+    return (max(0.0, centre - half), min(1.0, centre + half))
 
 
 def _consistent_with_consensus(y_frac: float, h_frac: float,
@@ -1539,7 +1793,8 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
     flagged: str | None = None
 
     try:
-        times = vad.probe_times(video_path, duration_sec, window_frac=(0.40, 0.60),
+        window = _probe_window(duration_sec)
+        times = vad.probe_times(video_path, duration_sec, window_frac=window,
                                 cancel_check=cancel_check)
     except vad.AudioExtractionCancelled:
         # Cancelled before a single probe: say so, and nothing else --
@@ -1624,6 +1879,11 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
     cutoff_frac = 0.0 if used_full_frame_retry else float(
         (settings or {}).get("bottom_half_cutoff", BOTTOM_HALF_CUTOFF)
     )
+    # Counted here only to compose the flag: the filtering itself happens
+    # inside _union_extent_detailed()/aggregate_box(), which both need it.
+    # Idempotent, so calling it a third time to count is cheap and cannot
+    # disagree with them.
+    _filtered, shape_dropped = _drop_tall_polys(polys_per_frame, orig_h, cutoff_frac)
     envelope_extent, kept_idx, watermark_status, position_flag = _union_extent_detailed(
         polys_per_frame, orig_h, cutoff_frac, frame_times,
     )
@@ -1677,6 +1937,18 @@ def detect_crop(video_path: str, duration_sec: float, det_engine,
             flagged = _compose_flag(flagged, part)
     if box is not None and 0 < agreed < LOW_AGREEMENT_HITS:
         flagged = _compose_flag(flagged, FLAG_LOW_AGREEMENT)
+    if shape_dropped:
+        # Severity, now that the box exists. A dropped poly wholly ABOVE the box
+        # cannot have clipped a line the box covers -- and since only polys over
+        # TALL_POLY_HEIGHT_RATIO line heights are dropped at all, such a poly is
+        # not a subtitle line in the first place (measured: a hand silhouette and
+        # a vertical name-plate column, neither readable as a horizontal line).
+        # A dropped poly that OVERLAPS the box might have been part of the same
+        # text block, so that stays blocking. See _shape_rejection_clear().
+        if _shape_rejection_clear(polys_per_frame, orig_h, cutoff_frac, box):
+            flagged = _compose_flag(flagged, FLAG_SHAPE_EXCLUDED)
+        else:
+            flagged = _compose_flag(flagged, FLAG_SHAPE_REJECTED)
 
     # Structural post-condition, not a specific-case fix: every box=None
     # exit above is expected to have composed its own specific flag by

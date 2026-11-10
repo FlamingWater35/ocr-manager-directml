@@ -1490,7 +1490,16 @@ def test_every_crop_flag_is_classified_as_informational_or_blocking():
     either set by omission."""
     assert crop.INFORMATIONAL_FLAGS | crop.BLOCKING_FLAGS == _module_flags()
     assert not crop.INFORMATIONAL_FLAGS & crop.BLOCKING_FLAGS
-    assert crop.INFORMATIONAL_FLAGS == {crop.FLAG_NO_SPEECH, crop.FLAG_SPEECH_PROBES_EXHAUSTED}
+    # shape-excluded is informational by measurement, not by taste: a detection
+    # over TALL_POLY_HEIGHT_RATIO line heights that ends entirely ABOVE the box
+    # cannot be a line the box covers, and is not a subtitle line at all (the
+    # two reference clips' dropped detections are a hand silhouette and a
+    # vertical name-plate column). Its blocking sibling, shape-rejected?, is
+    # the case where a dropped detection overlaps the box, which could have
+    # clipped the text block the box covers.
+    assert crop.INFORMATIONAL_FLAGS == {
+        crop.FLAG_NO_SPEECH, crop.FLAG_SPEECH_PROBES_EXHAUSTED, crop.FLAG_SHAPE_EXCLUDED,
+    }
 
 
 BOX = (288, 900, 1344, 90)
@@ -1638,3 +1647,248 @@ def test_the_detector_score_threshold_accepts_the_scores_pp_ocrv6_actually_gives
                                      lambda t: ([score], [_poly(400, 980, 1500, 1030)]))
     assert (result.box is not None) is accepted
     assert crop.DT_SCORE_THRESHOLD == 0.75
+
+
+# --------------------------------------------------------------------------
+# The shape filter (_drop_tall_polys)
+#
+# Measured on the two reference clips in test_media/. Accepted subtitle-line
+# polygon heights were 115-152 px on the long clip and 138-150 px on the short
+# one, i.e. 0.92-1.14x the median line height, while a hand silhouette the
+# detector also boxed came out 2.09-2.45x. Those two clips failed in DIFFERENT
+# ways, which is why the filter has to be per-POLY and not a baseline-cluster
+# rule: on the long clip the silhouette sat 0.83 line heights above the
+# subtitle, close enough for the adjacency exception to fold it in (the union
+# then hit 32% of frame height and tripped MAX_CROP_HEIGHT_FRAC -> box None),
+# and on the short clip it shared a frame with the subtitle, so the per-frame
+# union swallowed it and its bottom edge clustered perfectly with every other
+# frame.
+# --------------------------------------------------------------------------
+
+def test_a_tall_detection_above_the_subtitle_baseline_is_dropped():
+    # The long clip's failure: a 284px silhouette ~0.8 line heights above a
+    # 125px subtitle line. Unioned, it inflates the box past the height cap.
+    frames = [
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 700, 1500, 984)],       # silhouette, 284px tall, ends above
+        [_poly(400, 980, 1500, 1030)],
+    ]
+    filtered, dropped = crop._drop_tall_polys(frames, 1080, 0.55)
+
+    assert dropped == 1
+    assert filtered[2] == [], "the silhouette's frame keeps no poly"
+    assert [len(f) for i, f in enumerate(filtered) if i != 2] == [1, 1, 1]
+
+
+def test_a_tall_detection_on_the_baseline_is_kept_as_a_merged_two_liner():
+    # A genuine two-line subtitle merged into ONE polygon is tall too (about
+    # 2.3x), but it still ENDS on the same baseline as every one-line frame.
+    # That is the whole escape hatch: dropping these would lose real lines.
+    frames = [
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 740, 1500, 1032)],      # two lines in one poly, ends on baseline
+        [_poly(400, 980, 1500, 1030)],
+    ]
+    filtered, dropped = crop._drop_tall_polys(frames, 1080, 0.55)
+
+    assert dropped == 0
+    assert filtered == frames
+
+
+def test_a_tall_detection_sharing_a_frame_with_the_subtitle_is_dropped():
+    # The short clip's failure: silhouette and subtitle in the SAME frame, so
+    # the per-frame union covers both and the union's bottom edge clusters
+    # with every other frame -- baseline clustering cannot see it at all.
+    frames = [
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 600, 1500, 960), _poly(400, 980, 1500, 1030)],   # same frame
+        [_poly(400, 980, 1500, 1030)],
+    ]
+    filtered, dropped = crop._drop_tall_polys(frames, 1080, 0.55)
+
+    assert dropped == 1
+    assert len(filtered[2]) == 1
+    assert np.array_equal(filtered[2][0], _poly(400, 980, 1500, 1030))
+
+
+def test_too_few_samples_means_no_filtering():
+    # Two in-band polys cannot establish a "typical line height"; guessing one
+    # would be worse than leaving a possible false positive in.
+    frames = [[_poly(400, 600, 1500, 960)], [_poly(400, 980, 1500, 1030)]]
+    filtered, dropped = crop._drop_tall_polys(frames, 1080, 0.55)
+
+    assert dropped == 0
+    assert filtered == frames
+
+
+def test_polys_outside_the_band_are_left_alone():
+    # A tall shape above the band cutoff is not this filter's business: the
+    # band already excluded it, and dropping it would make the count lie.
+    frames = [[_poly(400, 100, 1500, 400)] for _ in range(5)]
+    filtered, dropped = crop._drop_tall_polys(frames, 1080, 0.55)
+
+    assert dropped == 0
+    assert filtered == frames
+
+
+def test_a_malformed_polygon_does_not_crash_the_filter():
+    # Detectors are external; anything unreadable must read as "malformed"
+    # (the documented _poly_extent contract), not raise out of crop detection.
+    frames = [[_poly(400, 980, 1500, 1030)] for _ in range(4)]
+    frames.append(["something"])
+    filtered, dropped = crop._drop_tall_polys(frames, 1080, 0.55)
+
+    assert dropped == 0
+    assert filtered[-1] == ["something"], "unparseable polys are passed through"
+
+
+def test_the_shape_filter_keeps_the_frame_list_aligned():
+    # kept_idx / frame_times index into this list, so its length and order must
+    # survive filtering exactly.
+    frames = [[_poly(400, 980, 1500, 1030)] for _ in range(3)]
+    frames.insert(1, [_poly(400, 700, 1500, 984)])
+    frames.append([_poly(400, 980, 1500, 1030)])
+
+    filtered, dropped = crop._drop_tall_polys(frames, 1080, 0.55)
+
+    assert len(filtered) == len(frames)
+    assert dropped == 1
+    assert filtered[1] == []
+
+
+def test_the_tall_poly_ratio_sits_in_the_measured_gap():
+    # Real lines measured 0.92-1.14x their median height and the silhouette
+    # 2.09-2.45x. The ratio must reject the silhouette while keeping any
+    # genuine line, and must stay well clear of both ends of that gap.
+    assert 1.14 < crop.TALL_POLY_HEIGHT_RATIO < 2.09
+    assert crop.TALL_POLY_HEIGHT_RATIO == 1.6
+
+
+# --------------------------------------------------------------------------
+# The shape flag's severity (_shape_rejection_clear)
+#
+# The flag has two meanings and they are not equally doubtful. A dropped
+# detection that OVERLAPS the box might have been part of the same text block,
+# so the box could be clipping it -- blocking. One that sits entirely ABOVE the
+# box cannot be a line the box covers, and being over TALL_POLY_HEIGHT_RATIO
+# line heights it is not a subtitle line at all: on the reference clips the
+# dropped detections are a hand silhouette and a vertical name-plate column,
+# neither readable as a horizontal line. Measured on both clips: with the
+# filter the box is (576, 1428, 2688, 153) / (576, 1398, 2688, 160); with it
+# disabled BOTH return box=None, so excluding these is what makes a box exist.
+# --------------------------------------------------------------------------
+
+def test_a_dropped_detection_above_the_box_is_not_a_doubt_about_the_box():
+    frames = [
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 700, 1500, 984)],       # 284px, ends at 984
+        [_poly(400, 980, 1500, 1030)],
+    ]
+    box = (400, 1000, 1100, 60)             # top edge 1000, below the drop's 984
+
+    assert crop._shape_rejection_clear(frames, 1080, 0.55, box) is True
+
+
+def test_a_dropped_detection_overlapping_the_box_stays_a_doubt():
+    # Tall (375px), off-baseline by 45px (over the 32px tolerance, so it IS
+    # dropped), but its bottom edge (1075) is below the box's top (1000): it
+    # overlaps what the box covers, so the drop could have removed part of
+    # that text block. A tall poly ending ON the baseline would not be dropped
+    # at all -- that is the escape hatch the previous test pins.
+    frames = [
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 980, 1500, 1030)],
+        [_poly(400, 700, 1500, 1075)],
+        [_poly(400, 980, 1500, 1030)],
+    ]
+    box = (400, 1000, 1100, 60)
+
+    assert crop._drop_tall_polys(frames, 1080, 0.55)[1] == 1, "the fixture must actually drop"
+    assert crop._shape_rejection_clear(frames, 1080, 0.55, box) is False
+
+
+def test_no_box_means_no_verdict_about_the_box():
+    frames = [[_poly(400, 700, 1500, 984)] for _ in range(4)]
+
+    assert crop._shape_rejection_clear(frames, 1080, 0.55, None) is False
+
+
+def test_too_little_evidence_never_reads_as_clear():
+    # Under TALL_POLY_MIN_SAMPLES there is no decision at all, so nothing may
+    # be called "excluded safely" either.
+    frames = [[_poly(400, 980, 1500, 1030)], [_poly(400, 700, 1500, 984)]]
+
+    assert crop._shape_rejection_clear(frames, 1080, 0.55, (400, 1000, 1100, 60)) is False
+
+
+def test_the_clear_flag_is_informational_and_the_overlapping_one_is_blocking():
+    assert crop.FLAG_SHAPE_EXCLUDED in crop.INFORMATIONAL_FLAGS
+    assert crop.FLAG_SHAPE_REJECTED in crop.BLOCKING_FLAGS
+    assert crop.FLAG_SHAPE_EXCLUDED not in crop.BLOCKING_FLAGS
+
+
+# --------------------------------------------------------------------------
+# The probe window's minimum span (_probe_window)
+#
+# (0.40, 0.60) of the duration skips a full episode's titles and credits, which
+# is a statement about FRACTIONS and stops working on short files: a 17.4 s
+# clip gives a 3.5 s window, and vad.probe_times() spaces candidates ~2.5 s
+# apart, so it returned ONE candidate and the box came from one frame --
+# "low-agreement" despite a correct box. Convergence needs
+# CONVERGENCE_STABLE_ROUNDS * PROBE_BATCH_SIZE candidates to be reachable at
+# all. Measured on test_media/test_video_2.mp4: 1 candidate / 1 sample without
+# the floor, 7 candidates / 7 samples with it, box unchanged. On a 349 s clip
+# the floor changes nothing.
+# --------------------------------------------------------------------------
+
+def test_a_long_file_keeps_the_fractional_window():
+    # 349 s: the fractional window is already 70 s, far past the floor.
+    assert crop._probe_window(349.2) == (crop.PROBE_WINDOW_START_FRAC,
+                                         crop.PROBE_WINDOW_END_FRAC)
+
+
+def test_a_short_file_widens_the_window_about_its_centre():
+    start, end = crop._probe_window(17.36)
+
+    assert end - start > crop.PROBE_WINDOW_END_FRAC - crop.PROBE_WINDOW_START_FRAC
+    assert (start + end) / 2 == pytest.approx(
+        (crop.PROBE_WINDOW_START_FRAC + crop.PROBE_WINDOW_END_FRAC) / 2)
+    # 17.36 s cannot reach the 25 s floor without covering the whole file, so
+    # this is the "shorter than the floor" case: all of it.
+    assert (start, end) == (0.0, 1.0)
+
+
+def test_a_file_just_past_the_floor_gets_exactly_the_floor():
+    duration = 60.0                      # 20% of it is 12 s, under the floor
+
+    start, end = crop._probe_window(duration)
+
+    assert duration * (end - start) == pytest.approx(crop.PROBE_WINDOW_MIN_SPAN_SEC)
+    assert start > 0.0 and end < 1.0
+
+
+def test_a_file_shorter_than_the_floor_uses_all_of_itself():
+    start, end = crop._probe_window(10.0)
+
+    assert (start, end) == (0.0, 1.0)
+
+
+def test_the_floor_is_enough_for_convergence_to_be_reachable():
+    # The whole point of the floor: the window must be able to supply the
+    # candidates the convergence stop needs, at the spacing probe_times() uses.
+    needed = crop.CONVERGENCE_STABLE_ROUNDS * crop.PROBE_BATCH_SIZE
+    spacing = 2.5                        # vad._PEAK_TARGET_SPACING_SEC
+    assert crop.PROBE_WINDOW_MIN_SPAN_SEC >= needed * spacing
+
+
+def test_the_floor_does_not_move_the_window_off_centre():
+    for duration in (20.0, 30.0, 60.0, 120.0, 349.2):
+        start, end = crop._probe_window(duration)
+        assert start >= 0.0 and end <= 1.0
+        assert start <= end
+        if duration * 0.2 < crop.PROBE_WINDOW_MIN_SPAN_SEC:
+            assert (start + end) / 2 == pytest.approx(0.5)

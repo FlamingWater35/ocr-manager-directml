@@ -21,7 +21,10 @@ Full detection (`detect_brightness` without `folder_plateau`):
    strips, strips without are empty strips.
 3. `analytic_seed`: Otsu inside the eroded polygons on the min-channel, the
    median over frames of each frame's median glyph level, rounded to 5,
-   minus 8.
+   minus 8 -- except that the frames are first split into dim and bright
+   populations and the BRIGHT side is the one medians over when it is
+   genuinely brighter (see analytic_seed: false positives box dim
+   background, so contamination is one-sided).
 4. `gate_floor`: the lowest t from which up, >=95% of empty strips stay below
    the OCR pass's Laplacian gate.
 5. `verify_with_ocr`: OCR up to 16 text strips at seed +/- 25 step 5 in one
@@ -141,6 +144,16 @@ MIN_GLYPH_REGION_PIXELS = 50      # fewer eroded-polygon pixels than this: no Ot
 # range; not swept, only validated as part of the whole pipeline on the
 # reference corpus (task-4-report.md).
 IMPLAUSIBLE_SEED = 150
+# Fewer than this many strips on the bright side of analytic_seed()'s Otsu
+# split and the split is not trusted: there is no second population to prefer,
+# so the plain median is used instead. See analytic_seed().
+MIN_BRIGHT_STRIPS = 4
+# The bright side of that split must sit at least this far above the whole
+# set's median for the split to count as a real second population. Measured
+# median lifts: 136.5 and 61.5 where contamination is real, 0.0-3.0 on every
+# clean single-population set. 25 sits in that gap with room on both sides;
+# every value from 15 to 40 gives identical seeds on all reference cases.
+SEED_LIFT_MIN = 25.0
 
 # --- Gate floor
 GATE_QUIET_PERCENT = 95
@@ -471,6 +484,22 @@ def _poly_points(poly) -> np.ndarray:
     return np.asarray(poly, dtype=np.float64).reshape(-1, 2).round().astype(np.int32)
 
 
+def _fillable(poly) -> bool:
+    """True when cv2.fillPoly() can take this polygon at all.
+
+    Detectors are external, so a polygon can arrive malformed -- and OpenCV
+    raises `(-215:Assertion failed) p.checkVector(2, CV_32S) > 0` rather than
+    returning an error, which would take the whole brightness detection down
+    with it. Same contract as core.detect.crop._poly_extent(): unreadable
+    geometry means "nothing to measure here", not a crash.
+    """
+    try:
+        points = np.asarray(poly, dtype=np.float64)
+    except (TypeError, ValueError):
+        return False
+    return points.size >= 6 and points.reshape(-1, 2).shape[0] >= 3
+
+
 def _glyph_pixels(strip: np.ndarray, polys) -> tuple[np.ndarray, np.ndarray | None]:
     """(min-channel, glyph mask) of one strip. Otsu inside the eroded
     polygons splits glyph fill from the background they enclose; the glyph
@@ -483,6 +512,8 @@ def _glyph_pixels(strip: np.ndarray, polys) -> tuple[np.ndarray, np.ndarray | No
     h, w = strip.shape[:2]
     region = np.zeros((h, w), dtype=np.uint8)
     for poly in polys:
+        if not _fillable(poly):
+            continue
         cv2.fillPoly(region, [_poly_points(poly)], 255)
     inside = cv2.erode(region, np.ones((POLY_ERODE_KERNEL, POLY_ERODE_KERNEL), np.uint8)) > 0
     values = min_channel[inside]
@@ -514,19 +545,147 @@ def _seed_from_level(level: float) -> int:
 
 
 def analytic_seed(strips: list[np.ndarray], polys_per_strip) -> int:
-    """round5(median over frames of each frame's median glyph level) - 8,
-    clamped to [100, 245]. Strips without polygons are ignored.
+    """round5(level of the strips that look like text) - 8, clamped to
+    [100, 245]. Strips without polygons are ignored.
 
-    The MEDIAN across frames is load-bearing: a detector that also boxes a
-    burned-in HUD drags that frame's glyph level down to the HUD's, and a low
-    quantile across frames followed it there on the reference project that
-    has one. Raises ValueError when no strip yields glyph pixels.
+    WHICH level is used is the whole point of this function, and it is not
+    the median across frames any more. Contamination here is ONE-SIDED: a
+    false positive boxes dim background texture (a bush, a sleeve, a face
+    edge), so its glyph level is always BELOW real subtitle text's and
+    nothing can push the estimate up. Measured on test_media/test_video.mkv
+    against its embedded English track (the ground truth for when a
+    subtitle is on screen): 25 of 48 sampled "text" strips were off-subtitle
+    false positives, every one of them dimmer than every on-subtitle strip,
+    and the median landed at 111.5 -- seed 102, below IMPLAUSIBLE_SEED, so
+    the file was reported as "coloured-text?" and got no detection at all.
+    The old docstring's argument for the median (one burned-in HUD dragging
+    a single frame down) still holds for a MINORITY of contamination; it
+    fails as soon as contamination is the majority, which on a 4K clip with
+    busy backgrounds it easily is.
+
+    Otsu's split over the per-strip levels separates the two populations
+    without needing to know their sizes -- that is exactly the property the
+    median lacks -- and the bright side is then medians over. On the two
+    reference clips this gives seeds 242 and 245; the on-subtitle-only
+    oracle for the long clip is 207, so the estimate lands at or slightly
+    above real text brightness, which is the safe direction: verification
+    then explores seed +/- VERIFY_HALF_WINDOW and picks PICK_BELOW_TOP
+    under whatever plateau it finds.
+
+    The split is only taken when it found a genuinely BRIGHTER population,
+    measured as the bright side's median sitting more than SEED_LIFT_MIN
+    above the whole set's (see _text_levels). Without that guard, Otsu
+    slices the top off a single noisy population and quietly raises the seed
+    on files that never had contamination -- which would move every clean
+    file's threshold for no reason.
+
+    Falls back to the plain median when the split is not trustworthy --
+    fewer than MIN_BRIGHT_STRIPS strips on the bright side (nothing was
+    really separated, so there is no second population to prefer), a
+    degenerate split where every level is identical (Otsu's cut is 0 there
+    and every strip is "bright"), or a lift under SEED_LIFT_MIN. Raises
+    ValueError when no strip yields glyph pixels.
     """
     levels = [level for level in (_glyph_level(s, p) for s, p in zip(strips, polys_per_strip))
               if level is not None]
     if not levels:
         raise ValueError("no strip has text polygons with glyph pixels to seed from")
-    return _seed_from_level(float(np.median(levels)))
+    return _seed_from_level(float(np.median(_text_levels(levels))))
+
+
+def analytic_seeds(strips: list[np.ndarray], polys_per_strip) -> tuple[int, int]:
+    """(seed, median_seed) for the same strips: the estimator above, and the
+    plain median across every strip's level -- the pre-split behaviour.
+
+    The pair exists for detect_brightness's retry: when verification finds no
+    plateau at the split's seed, the median seed gets one more try. They are
+    equal whenever the split was not taken, so the caller can skip the retry
+    on a cheap comparison. Raises ValueError under the same condition as
+    analytic_seed().
+    """
+    levels = [level for level in (_glyph_level(s, p) for s, p in zip(strips, polys_per_strip))
+              if level is not None]
+    if not levels:
+        raise ValueError("no strip has text polygons with glyph pixels to seed from")
+    return (_seed_from_level(float(np.median(_text_levels(levels)))),
+            _seed_from_level(float(np.median(levels))))
+
+
+def _text_levels(levels: list[float]) -> list[float]:
+    """The per-strip levels that look like the file's own text -- the bright
+    side of an Otsu split when that split found a real second population, and
+    all of them otherwise. See analytic_seed() for why the bright side.
+
+    The SEED_LIFT_MIN guard is what tells a real second population from the
+    top of one noisy population, and it is derived from the same asymmetry
+    the split exploits: false positives box dim background texture, so a
+    contaminated set has a bright side that is far above the whole set's
+    median, while a clean set sliced by Otsu has a bright side that is barely
+    above it. Measured median lifts: 136.5 on test_media/test_video.mkv,
+    61.5 on a synthetic 12-text/12-junk mixture, but 0.0-3.0 on every clean
+    single-population set tried (text at 250 with sd 0.5-6, uniform
+    215-255, and one-population sets at centres 120/160/220 with sd 2-20).
+    """
+    values = np.clip(np.asarray(levels, dtype=np.float64), 0, 255).astype(np.uint8)
+    if values.size < 2:
+        return levels
+    median_all = float(np.median(levels))
+    cut, _ = cv2.threshold(values.reshape(-1, 1), 0, 255,
+                           cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if cut <= 0:
+        # Every level identical (or all zero): nothing to separate.
+        return levels
+    bright = [level for level in levels if level > float(cut)]
+    if len(bright) < MIN_BRIGHT_STRIPS:
+        return levels
+    if float(np.median(bright)) - median_all <= SEED_LIFT_MIN:
+        return levels
+    return bright
+
+
+def _text_population(strips: list[np.ndarray], polys_per_strip) -> list[int] | None:
+    """Indices of the strips that belong to the file's own text population, or
+    None when that is all of them.
+
+    The seed estimator already knows which strips are text (see
+    analytic_seed: contamination here is one-sided, so the bright side of the
+    Otsu split is the text). Verification and the dim-text check need the same
+    knowledge, and for a stronger reason: they ASK each strip to be read at the
+    pick, and a false positive that boxes dim background can never be read
+    there. Counting those as unreadable is what raised "dim-text?" and
+    "thin-evidence?" on test_media/test_video.mkv and kept it out of
+    auto-apply, even though its threshold was correct.
+
+    Measured on that file against its detected box: of 32 sampled strips with
+    polygons, the population split keeps 12, of which 10 box the subtitle band
+    and 2 box other bright text; the 20 it drops are strips whose polygon
+    covers dim background. Every one of the dropped strips is UNREADABLE at the
+    pick (its own reading is '', '4?', '45' or 'M??'), so excluding them costs
+    no real evidence. Verification on the kept 12 gives value 232 with a
+    (222, 252) plateau, 10 evidence strips and 0 dim-text failures -- a result
+    whose only flag is the informational "no-clean-threshold".
+
+    Two conditions keep this from over-reaching:
+
+    - The split must have been TAKEN (_text_levels returned a proper subset),
+      so a file with one clean population is verified on all of its strips
+      exactly as before.
+    - What survives must still be enough to verify on (>= THIN_EVIDENCE_STRIPS).
+      A filter that leaves less than that would replace a doubtful result with
+      an unmeasured one, so the unfiltered set is used instead.
+    """
+    levels = [_glyph_level(strip, polys) for strip, polys in zip(strips, polys_per_strip)]
+    known = [level for level in levels if level is not None]
+    if len(known) < MIN_BRIGHT_STRIPS:
+        return None
+    bright = _text_levels(known)
+    if len(bright) >= len(known):
+        return None
+    cut = min(bright)
+    keep = [i for i, level in enumerate(levels) if level is not None and level >= cut]
+    if len(keep) < THIN_EVIDENCE_STRIPS:
+        return None
+    return keep
 
 
 def gate_floor(empty_strips: list[np.ndarray]) -> int | None:
@@ -1058,9 +1217,9 @@ def detect_brightness(video_path: str, crop_box, time_ranges, det_engine, ocr_en
     text_polys = [p for p in polys if p]
     empty_strips = [s for s, p in zip(strips, polys) if not p]
     try:
-        seed = analytic_seed(text_strips, text_polys)
+        seed, median_seed = analytic_seeds(text_strips, text_polys)
     except ValueError:
-        seed = None
+        seed = median_seed = None
 
     def with_evidence(result: BrightnessResult, thresholds=CLUTTER_THRESHOLDS) -> BrightnessResult:
         """`result`, finished, with the evidence of the strips sampled for it:
@@ -1100,7 +1259,32 @@ def detect_brightness(video_path: str, crop_box, time_ranges, det_engine, ocr_en
 
     if _is_cancelled(cancel_check):
         return cancelled(seed, floor)
-    verification = _verify(text_strips, seed, ocr_engine)
+    # Verification and the dim-text check ask each strip to be READ at the pick,
+    # so a strip that boxes dim background can only ever count against the
+    # result. Narrowing them to the file's own text population is what lets a
+    # file with heavy background contamination still be measured on its
+    # subtitles -- see _text_population() for the measurement and the guards.
+    population = _text_population(text_strips, text_polys)
+    if population is None:
+        verify_strips, verify_polys, verify_times = text_strips, text_polys, text_times
+    else:
+        verify_strips = [text_strips[i] for i in population]
+        verify_polys = [text_polys[i] for i in population]
+        verify_times = [text_times[i] for i in population]
+        logger.debug("brightness: verifying on %d of %d text strips (the rest box "
+                     "background far below the file's text population)",
+                     len(verify_strips), len(text_strips))
+    verification = _verify(verify_strips, seed, ocr_engine)
+    if verification.plateau is None and median_seed is not None and median_seed != seed:
+        # The bright side was not the text after all (a bright logo outnumbered
+        # it, inverting the one-sided contamination assumption). The plain
+        # median is the old estimator, so trying it costs one extra
+        # verification only on files that would otherwise have been reported
+        # as no-plateau? -- strictly no worse than before this change. Same
+        # strip set as the first attempt, so the two are compared like for like.
+        retry = _verify(verify_strips, median_seed, ocr_engine)
+        if retry.plateau is not None:
+            seed, verification = median_seed, retry
     value, plateau = verification.value, verification.plateau
     if verification.evidence < THIN_EVIDENCE_STRIPS:
         flagged = _compose_flag(flagged, FLAG_THIN_EVIDENCE)
@@ -1109,8 +1293,8 @@ def detect_brightness(video_path: str, crop_box, time_ranges, det_engine, ocr_en
     elif plateau[1] - plateau[0] < PICK_BELOW_TOP:
         flagged = _compose_flag(flagged, FLAG_NARROW_PLATEAU)
     try:
-        dim = _dim_text_check(video_path, crop_box, time_ranges, text_strips, text_times, text_polys,
-                              verification, ocr_engine, cancel_check=cancel_check)
+        dim = _dim_text_check(video_path, crop_box, time_ranges, verify_strips, verify_times,
+                              verify_polys, verification, ocr_engine, cancel_check=cancel_check)
     except _Cancelled:
         return cancelled(seed, floor)
     if not all(record["survives"] for record in dim):

@@ -128,6 +128,165 @@ def test_analytic_seed_refuses_when_no_strip_has_text():
 
 
 # --------------------------------------------------------------------------
+# analytic_seed: the bright side of the level split
+#
+# Real footage contaminates the "text" strips with false positives that box dim
+# background texture -- a bush, a sleeve, a face edge. On
+# test_media/test_video.mkv, 25 of 48 sampled text strips were off-subtitle
+# false positives and every one of them was dimmer than every on-subtitle
+# strip, so the plain median landed at 111.5 (seed 102, below IMPLAUSIBLE_SEED)
+# and the file got no detection at all. These tests pin the estimator that
+# reads the BRIGHT side instead, and the guards that keep it from moving files
+# that never had contamination.
+# --------------------------------------------------------------------------
+
+def _dim_contaminated_strips(text_core=250, junk_core=60, text=6, junk=6):
+    """`text` bright strips and `junk` dim ones, in the proportions measured on
+    the long reference clip (where junk outnumbered text)."""
+    strips = [_glyph_strip(core=(text_core,) * 3) for _ in range(text)]
+    strips += [_glyph_strip(core=(junk_core,) * 3,
+                            rim=(max(0, junk_core - 20),) * 3) for _ in range(junk)]
+    return strips, [[TEXT_POLY]] * (text + junk)
+
+
+def test_a_dim_contaminated_majority_does_not_drag_the_seed_down():
+    # The regression this whole change exists for: junk outnumbers text 1:2,
+    # so the median sits at the junk level and the seed is implausible.
+    strips, polys = _dim_contaminated_strips(text=6, junk=12)
+
+    assert B._seed_from_level(float(np.median(
+        [B._glyph_level(s, p) for s, p in zip(strips, polys)]))) < B.IMPLAUSIBLE_SEED
+    seed = B.analytic_seed(strips, polys)
+
+    assert seed >= B.IMPLAUSIBLE_SEED
+    assert abs(seed - B._seed_from_level(250)) <= 5
+
+
+def test_a_clean_single_population_keeps_the_plain_median_seed():
+    # No contamination: the split finds nothing to separate, so the seed must
+    # be exactly what it always was. Without the lift guard, Otsu slices the
+    # top off this population and raises the seed for no reason.
+    strips = [_glyph_strip(core=(core,) * 3) for core in (215, 230, 245, 255, 240, 250)]
+    polys = [[TEXT_POLY]] * len(strips)
+    levels = [B._glyph_level(s, p) for s, p in zip(strips, polys)]
+
+    assert B.analytic_seed(strips, polys) == B._seed_from_level(float(np.median(levels)))
+
+
+@pytest.mark.parametrize("centre", [120, 160, 220])
+def test_a_single_population_at_any_brightness_keeps_its_own_median(centre):
+    # A dim, low-contrast file is a single population too; the guard must not
+    # care where on the scale it sits.
+    strips = [_glyph_strip(core=(centre,) * 3, rim=(max(0, centre - 20),) * 3)
+              for _ in range(6)]
+    polys = [[TEXT_POLY]] * len(strips)
+
+    assert B.analytic_seed(strips, polys) == B._seed_from_level(centre)
+
+
+def test_too_few_bright_strips_falls_back_to_the_median():
+    # One bright strip among many dim ones is not a population; the split is
+    # refused rather than letting a single outlier set the seed.
+    strips, polys = _dim_contaminated_strips(text=1, junk=12)
+    levels = [B._glyph_level(s, p) for s, p in zip(strips, polys)]
+
+    assert B.analytic_seed(strips, polys) == B._seed_from_level(float(np.median(levels)))
+
+
+def test_analytic_seeds_reports_both_the_split_and_the_median():
+    strips, polys = _dim_contaminated_strips(text=6, junk=12)
+    levels = [B._glyph_level(s, p) for s, p in zip(strips, polys)]
+
+    seed, median_seed = B.analytic_seeds(strips, polys)
+
+    assert seed == B.analytic_seed(strips, polys)
+    assert median_seed == B._seed_from_level(float(np.median(levels)))
+    assert median_seed < seed, "the fixture must actually exercise a split"
+
+
+def test_analytic_seeds_agrees_with_itself_when_there_is_no_split():
+    strips = [_glyph_strip(core=(core,) * 3) for core in (240, 245, 250, 255)]
+    polys = [[TEXT_POLY]] * len(strips)
+
+    seed, median_seed = B.analytic_seeds(strips, polys)
+
+    assert seed == median_seed
+
+
+# --------------------------------------------------------------------------
+# The text population (_text_population)
+#
+# Verification and the dim-text check ASK each strip to be read at the pick, so
+# a strip that boxes dim background can only ever count against the result.
+# Narrowing them to the file's own text population is what lets a file with
+# heavy background contamination still be measured on its subtitles. Measured
+# on test_media/test_video.mkv against its detected box: 32 text strips, the
+# population split keeps 12 (10 of them box the subtitle band), and every one
+# of the 20 it drops is unreadable at the pick. Verification on the kept 12
+# gives value 232, plateau (222, 252), 10 evidence strips, 0 dim-text failures
+# -- only the informational "no-clean-threshold" left, where the unfiltered set
+# was "thin-evidence?+dim-text?+no-clean-threshold" and not auto-applicable.
+# --------------------------------------------------------------------------
+
+def test_the_population_keeps_only_the_bright_side_of_the_split():
+    strips, polys = _dim_contaminated_strips(text=12, junk=20)
+    levels = [B._glyph_level(s, p) for s, p in zip(strips, polys)]
+
+    keep = B._text_population(strips, polys)
+
+    assert keep is not None
+    assert len(keep) == 12
+    cut = min(levels[i] for i in keep)
+    assert all(levels[i] >= cut for i in keep)
+    assert all(levels[i] < cut for i in range(len(strips)) if i not in keep)
+
+
+def test_a_single_clean_population_is_verified_on_everything():
+    # No split was taken, so there is no second population to prefer and
+    # verification must see exactly the strips it always did.
+    strips = [_glyph_strip(core=(core,) * 3) for core in (215, 230, 245, 255, 240, 250)]
+    polys = [[TEXT_POLY]] * len(strips)
+
+    assert B._text_population(strips, polys) is None
+
+
+def test_a_population_that_would_leave_too_little_evidence_is_not_taken():
+    # Three bright strips among many dim ones: the split is real, but filtering
+    # to it would leave fewer than THIN_EVIDENCE_STRIPS to verify on, replacing
+    # a doubtful result with an unmeasured one.
+    strips, polys = _dim_contaminated_strips(text=3, junk=20)
+
+    assert B._text_population(strips, polys) is None
+
+
+def test_strips_without_measurable_glyphs_are_never_in_the_population():
+    strips, polys = _dim_contaminated_strips(text=12, junk=20)
+    strips.append(_glyph_strip())
+    polys.append([np.zeros((0, 2))])       # a poly with no extent
+
+    keep = B._text_population(strips, polys)
+
+    assert keep is not None
+    assert len(strips) - 1 not in keep
+
+
+def test_the_population_is_a_subset_in_original_order():
+    strips, polys = _dim_contaminated_strips(text=12, junk=20)
+
+    keep = B._text_population(strips, polys)
+
+    assert keep == sorted(keep)
+    assert len(set(keep)) == len(keep)
+    assert all(0 <= i < len(strips) for i in keep)
+
+
+def test_no_measurable_levels_at_all_means_no_population():
+    strips = [_ramp_strip() for _ in range(4)]
+
+    assert B._text_population(strips, [[TEXT_POLY]] * 4) is None
+
+
+# --------------------------------------------------------------------------
 # gate_floor
 # --------------------------------------------------------------------------
 
@@ -458,6 +617,25 @@ class _FakeDet:
 class _ExplodingDet:
     def predict(self, images):
         raise AssertionError("the detection engine must not be used on this path")
+
+
+class _DimDet:
+    """Boxes the text line for any strip whose glyph block 0 is at least a
+    little brighter than the background -- so dim text is text, as a real
+    detector would say."""
+
+    def __init__(self, score=0.97):
+        self.score = score
+
+    def predict(self, images):
+        out = []
+        for img in images:
+            probe = int(img[GLYPH_Y0 + 5, GLYPH_X0 + 5].max())
+            if probe >= BG + 40:
+                out.append({"dt_polys": np.array([TEXT_POLY]), "dt_scores": [self.score]})
+            else:
+                out.append({"dt_polys": np.zeros((0, 4, 2)), "dt_scores": []})
+        return out
 
 
 class _GlyphReadingOCR:
@@ -1411,6 +1589,59 @@ def test_no_text_anywhere_is_flagged(monkeypatch):
     assert result.flagged is not None and "no-text" in result.flagged.split("+")
     assert result.plateau is None
     assert not result.auto_applicable
+
+
+def test_a_split_seed_with_no_plateau_retries_at_the_plain_median(monkeypatch):
+    # Bright-logo contamination inverts the one-sided assumption: a bright
+    # false positive outnumbers the text's own population, so the split's seed
+    # lands far above where the text actually reads. The median seed is the old
+    # estimator, so trying it once more must recover the plateau -- and the
+    # result must be the median's, not the split's.
+    text = [_glyph_strip(core=(150,) * 3, rim=(130,) * 3) for _ in range(20)]
+    logos = [_glyph_strip(core=(250,) * 3) for _ in range(5)]
+    _fake_source(monkeypatch, text + logos)
+    asked = []
+
+    def fake_verify(strips, seed, ocr_engine):
+        asked.append(seed)
+        # Only the median seed finds a plateau; the split's finds nothing.
+        if seed == median_seed:
+            return B._Verification(172, (167, 187), [(t, 1.0) for t in range(167, 192, 5)],
+                                   list(range(167, 192, 5)), [], [None] * 5, [[]] * 5, [[]] * 5)
+        return B._Verification(seed, None, [], [], [], [], [], [])
+
+    levels = [B._glyph_level(s, [TEXT_POLY]) for s in text + logos]
+    median_seed = B._seed_from_level(float(np.median(levels)))
+    split_seed, _ = B.analytic_seeds(text + logos, [[TEXT_POLY]] * len(text + logos))
+    assert split_seed > median_seed, "the fixture must exercise a split that overshoots"
+    monkeypatch.setattr(B, "_verify", fake_verify)
+    monkeypatch.setattr(B, "_dim_text_check", lambda *a, **k: [])
+
+    result = B.detect_brightness("v.mp4", CROP, None, _DimDet(), _ExplodingOCR())
+
+    assert asked == [split_seed, median_seed], "the retry asks for the median seed"
+    assert result.seed == median_seed, "the retry must adopt the median seed"
+    assert result.plateau == (167, 187)
+
+
+def test_the_retry_is_skipped_when_the_split_did_not_move_the_seed(monkeypatch):
+    # No split -> median_seed == seed -> the retry is a no-op, so verification
+    # must not be asked to run twice.
+    text = [_glyph_strip(core=(core,) * 3) for core in (240, 245, 250, 255)] * 4
+    _fake_source(monkeypatch, text + [_ramp_strip(top=200)] * 8)
+    asked = []
+
+    def fake_verify(strips, seed, ocr_engine):
+        asked.append(seed)
+        return B._Verification(seed, None, [], [], [], [], [], [])
+
+    monkeypatch.setattr(B, "_verify", fake_verify)
+    monkeypatch.setattr(B, "_dim_text_check", lambda *a, **k: [])
+
+    result = B.detect_brightness("v.mp4", CROP, None, _FakeDet(), _ExplodingOCR())
+
+    assert len(asked) == 1, "one verification only: there was no second seed to try"
+    assert result.plateau is None
 
 
 def test_keep_ranges_that_select_nothing_are_flagged_not_sampled_elsewhere(synthetic_video):

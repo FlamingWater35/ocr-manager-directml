@@ -1,38 +1,49 @@
 # Transitive pins for the bundle. There is no first-run install any more: the
 # whole OCR stack (RapidOCR + onnxruntime-directml) is inside this tree, so the
 # bundle alone decides which version runs. Every entry below is in the
-# dependency closure of packaging/requirements-bundle.txt. Refresh with the
-# build venv:
-#   python -m pip freeze --all | grep -viE '^(pytest|pluggy|iniconfig|pygments|execnet|av==)'
+# dependency closure of packaging/requirements-bundle.txt, and every version
+# here AGREES with that file -- the two are resolved together, so a pin that
+# contradicts requirements-bundle.txt makes `pip install -c` fail with
+# ResolutionImpossible before a single wheel is downloaded. That is exactly
+# what happened to this file before: it had been frozen from a different venv
+# (numpy 2.5.4 here vs 2.4.1 there, mpmath 1.4.1 here vs sympy's own
+# `mpmath<1.4` requirement), and the release build could not get past
+# install_dependencies().
+#
+# Refresh with the target interpreter rather than a dev venv, and let pip do
+# the resolution so the two files cannot drift apart:
+#   python -m pip install --only-binary=:all: --dry-run --report report.json \
+#       -r packaging/requirements-bundle.txt
+#   # then rewrite this file from report.json's `install` entries
 annotated-types==0.8.0
-antlr4-python3-runtime==4.13.2
 certifi==2026.10.23
 charset-normalizer==3.5.2
+colorama==0.4.6
 colorlog==6.12.0
 flatbuffers==25.12.19
 idna==3.20
 jieba3==1.0.2
-mpmath==1.4.1
-numpy==2.5.4
+mpmath==1.3.0
+numpy==2.4.1
 omegaconf==2.4.0
 onnxruntime-directml==1.24.4
-opencv-python-headless==5.0.0.93
-packaging==26.3
+opencv-python-headless==4.10.0.84
+packaging==25.0
 pillow==13.0.0
 protobuf==7.36.2
 pyclipper==1.4.0
 pydantic==2.14.3
 pydantic-core==2.50.4
-PyQt6==6.12.0
-PyQt6-Qt6==6.12.0
+PyQt6==6.10.2
+PyQt6-Qt6==6.10.2
 PyQt6-sip==13.13.0
 python-bidi==0.6.12
-PyYAML==6.0.3
-rapidfuzz==3.14.6
+PyYAML==6.0.2
+rapidfuzz==3.14.3
 rapidocr==3.10.0
 requests==2.34.2
-scipy==1.18.1
-setuptools==84.2.1
+scipy==1.17.0
+setuptools==80.9.0
 shapely==2.2.0
 six==1.17.0
 sympy==1.14.0

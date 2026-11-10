@@ -185,6 +185,8 @@ class StripPixels:
         self._measure()
         self._t: int | None = None
         self._masked: np.ndarray | None = None
+        self._lost_t: int | None = None
+        self._lost: np.ndarray | None = None
 
     # --- threshold-independent -------------------------------------------------
 
@@ -246,10 +248,21 @@ class StripPixels:
         raw strip, inside the boxes, and zero after masking. Masking
         zeroes a pixel exactly when its min-channel is below `t`, so that
         last test is `min_channel < t` -- the same pixels, without a second
-        pass over the masked strip. None without a glyph mask."""
+        pass over the masked strip. None without a glyph mask.
+
+        Cached by `t` like `masked()`, because a single threshold change asks
+        for the same answer twice: once in the tile's `_redraw` (to tint the
+        pixels that are lost) and once in `_status` (to count them). The
+        result is a full-strip boolean array, so the second pass was a real
+        cost on every threshold change, and the two callers always pass the
+        same `t`."""
+        t = int(t)
         if self._glyph is None:
             return None
-        return self._glyph & (self._min_channel < int(t))
+        if self._lost_t != t or self._lost is None:
+            self._lost = self._glyph & (self._min_channel < t)
+            self._lost_t = t
+        return self._lost
 
     def lost_percent(self, t: int) -> float | None:
         """What share of the glyph pixels `t` throws away, 0-100. None

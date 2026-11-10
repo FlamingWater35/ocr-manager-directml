@@ -292,11 +292,27 @@ def compile_bytecode(root: Path, os_name: str) -> None:
     # not Python 3 (templates, py2-only helpers) and never get imported;
     # compileall exits 1 for those, so they are reported, not fatal.
     run([py, "-s", "-E", "-m", "compileall", "-q", "--invalidation-mode", "unchecked-hash", root / "src"])
+    # -j 0 fans out over every core, which is what makes this fast. It is also
+    # the only step that needs a process pool, and a pool needs a pipe: on a
+    # host where pipe creation is blocked (a restricted token, some sandboxes)
+    # compileall dies before compiling ANYTHING and still exits 1 -- the same
+    # exit code a genuinely uncompilable third-party file produces, so the
+    # distinction cannot be made from the status. Retrying serially is the
+    # cheap way to tell them apart: if the parallel run did nothing, the serial
+    # one does the whole job; if it merely tripped over one bad file, the
+    # serial run fails on the same file and costs one extra pass, only on a
+    # build that was already reporting a failure.
     cmd = [py, "-s", "-E", "-m", "compileall", "-q", "-j", "0", "--invalidation-mode", "unchecked-hash",
            root / "python"]
     print("   $", " ".join(str(c) for c in cmd), flush=True)
-    if stream(cmd):
-        print("    (some third-party files do not compile; they are left as source)", flush=True)
+    code = stream(cmd)
+    if code:
+        serial = [py, "-s", "-E", "-m", "compileall", "-q", "-j", "1",
+                  "--invalidation-mode", "unchecked-hash", root / "python"]
+        print("    parallel compileall failed; retrying serially", flush=True)
+        print("   $", " ".join(str(c) for c in serial), flush=True)
+        if stream(serial):
+            print("    (some third-party files do not compile; they are left as source)", flush=True)
 
 
 def install_ffmpeg(root: Path, os_name: str, cache: Path) -> None:
