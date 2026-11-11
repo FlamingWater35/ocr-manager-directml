@@ -24,7 +24,7 @@
 ---
 
 <p align="center">
-  <img src="Pictures/GUI.jpg" alt="OCR Manager main window" width="900">
+  <img src=".github/readme/GUI.jpg" alt="OCR Manager main window" width="900">
   <br />
   <em>OCR Manager reviewing an episode: crop box, sample filmstrip, brightness curve and keep ranges</em>
 </p>
