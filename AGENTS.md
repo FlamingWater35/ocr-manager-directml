@@ -145,10 +145,10 @@ test as the specification and read it before you work around it.
   returns `(title, body)` tuples); everything else is logged. Never let a
   failed apply or a missing tool raise into a Qt slot — PyQt6 aborts the
   process, which is why `app/__main__.py` installs an `sys.excepthook`.
-- **Commit messages** follow conventional-ish prefixes (`feat:`, `fix(ui):`,
-  `perf:`, `test:`, `ci:`, `chore: version X`); large changes are plain
-  sentences. `app/version.py` is the single source of the version, and a
-  `vX.Y.Z` tag that does not match it fails CI.
+- **Commit messages** follow the template in "Commit messages" below:
+  `type(scope): summary`, then a body that opens with the measurement that
+  motivated the change. `app/version.py` is the single source of the version,
+  and a `vX.Y.Z` tag that does not match it fails CI.
 
 ## Tests
 
@@ -249,3 +249,58 @@ when the folder is absent.
   `bin/` and `models/` are fetched per checkout and must never be committed.
 - `.git/info/exclude` carries a couple of local-only entries left by tests;
   leave it alone.
+
+## Commit messages
+
+A message is a record of a measurement, not a list of touched files: `git show`
+already prints the diff, so the body exists to say *why* the diff is shaped that
+way and *what number* proves it works. Write it in the present tense, in plain
+prose, and lead with the defect.
+
+```
+type(scope): imperative summary, at most 72 characters, no full stop
+
+One paragraph naming the symptom and the measurement that localised it. Quote
+the real numbers -- a timing, a score, a box, a test count -- because the next
+reader cannot re-derive them. If the change fixes something, say what it did
+before ("both clips returned box=None", "the bar froze for 34 s").
+
+* One bullet per independent cause, when there are several. Open with the
+  claim, then the evidence, then the fix. Wrap at 78 columns and indent the
+  continuation by two spaces, so the bullet stays one paragraph.
+
+* Say what was measured and rejected, when it is not obvious: a plausible
+  alternative that was tested and did not work is worth a sentence, because it
+  stops the next person from trying it again.
+
+Also: unrelated side fixes go last, in one paragraph, prefixed "Also:". They
+still need their reason -- a speed-up names the before/after milliseconds, a
+robustness fix names the exception it prevents.
+
+Result: the verification, as numbers -- "3855 passed, 19 skipped, 0 failed
+(27 min)", plus any benchmark or bundle check that was run.
+```
+
+Rules the template encodes:
+
+- **`type(scope): summary`.** `feat`, `fix`, `perf`, `test`, `ci`, `chore`,
+  `docs`, `refactor`. The scope is the layer (`ui`, `detect`, `jobs`,
+  `project`, `packaging`) and is omitted when the change is repository-wide.
+  Imperative mood: "make auto-detection work", not "made" or "makes".
+- **The subject is a claim, not a filename.** `feat(ui): give the proof OCR a
+  real progress bar and a Cancel button` says what the user gets.
+- **Blank line after the subject**, then body paragraphs wrapped to at most 80
+  columns (78 is the habit; the hard limit is 80).
+- **Numbers over adjectives.** "frozen for half a minute", not "slow";
+  "0.92-1.14x the median", not "about the same". If a threshold was chosen,
+  name the gap it sits in and why.
+- **Name the file only when the path is the point** (`tests/fs_denial.py`,
+  `packaging/constraints-bundle.txt`); otherwise describe the behaviour.
+- **One commit, one concern.** If the body needs an "Also:" paragraph, that is
+  fine — but two unrelated *subjects* belong in two commits.
+- **No trailers, no emoji, no "Generated with" lines.** Keep the body ASCII --
+  write an em dash as `--` -- and keep non-ASCII only inside a quoted literal
+  from the UI or the data (`"Cancelling…"`, `你好世界测试字幕`).
+- Commit with `git commit -F <file>`, where the file was written without a BOM:
+  `[IO.File]::WriteAllText($path, $msg, (New-Object Text.UTF8Encoding($false)))`
+  in PowerShell 5.1, because `Out-File -Encoding utf8` prepends one.
