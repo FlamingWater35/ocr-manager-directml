@@ -66,6 +66,7 @@ from __future__ import annotations
 import copy
 import os
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -105,6 +106,27 @@ if TYPE_CHECKING:
 THUMB_HEIGHT = 72                 # px; thumbnails are whole frames scaled to this height
 PROOF_WINDOW_SEC = 30.0           # length of the proof OCR window
 PROOF_START_FRACTION = 0.4        # window start without a sample time, as a fraction of the duration
+# Where the proof's one bar splits between videocr's two phases. videocr counts
+# dialogue and labels each from 0 to 100 % of themselves, so a bar fed its
+# percentages straight through reaches 100 % and snaps back to 0 when the label
+# pass starts -- on the 30 s window of test_media/test_video.mkv that was a jump
+# from "100 %" at 32.8 s to "0 %" at 67.2 s. The Run tab explains the same
+# restart with "Step 1 of 2" (app/views/episode_views.py); the proof row has no
+# such line, so its bar has to be one sweep.
+#
+# Measured on that window (4K 10-bit, 30 s at the 40 % mark, after
+# videocr.progress started counting OCR'd frames rather than read ones):
+# dialogue reports 0.9 s -> 62.7 s and the label scan 65.4 s -> 207.8 s, i.e.
+# dialogue is 30 % of the wall and the label pass 69 % (the two runs measured
+# 31 % and 30 %, so the split is taken at 0.31). Splitting there makes the bar
+# track elapsed time closely rather than merely monotonic: when the phase
+# switches, the bar and the clock agree to within a percent.
+#
+# It is a prior, not a promise: a 1080p file's label scan is much cheaper, so
+# its dialogue share is larger and the bar will run slightly ahead of the clock
+# until the label pass catches up. The properties that hold everywhere are the
+# ones worth relying on -- it never moves backwards, and it ends at 100 %.
+PROOF_DIALOGUE_SHARE = 0.31
 PROOF_PRIORITY = 100              # above every auto-pilot priority (tests/test_autopilot.py checks)
 # Why a proof cannot run yet, in the window's voice: the duration comes from
 # the metadata job, so an unknown one means the file has not been scanned.
@@ -666,6 +688,17 @@ class ProofOcrJob:
     (proof_lines) from the ASS text get_subtitles returns after the run's QA
     pass (qa_pass), so they are what a run would write, labels-only folders
     included. `seconds` times the OCR call alone.
+
+    Progress is reported through videocr's own `progress_callback`, which
+    measures the FRAMES of the window already OCR'd (videocr/progress.py), so
+    the bar tracks the work the GPU is actually doing rather than a guess --
+    the producer counts the frames it drops and the consumer the ones it
+    receives, so the count follows the OCR batches instead of stopping when
+    the last frame was read. `ctx.progress` emits "progress" events with a 0-1
+    fraction and the phase name, mapped onto one monotonic sweep across both
+    phases (see PROOF_DIALOGUE_SHARE); the Inspector turns that into the bar
+    and the status line, and the controller ignores a proof's progress once
+    its result has arrived.
     """
 
     kind = "proof"
@@ -683,8 +716,48 @@ class ProofOcrJob:
     def run(self, ctx: JobContext) -> ProofResult | None:
         started = time.perf_counter()
         ass = _api.get_subtitles(**copy.deepcopy(self._kwargs), time_ranges=[self.time_range],
+                                 progress_callback=_progress_reporter(ctx),
                                  cancel_event=ctx.cancel_event)
         seconds = time.perf_counter() - started
         if ctx.cancelled():
             return None
         return ProofResult(self.file, self.window, proof_lines(qa_pass(ass or "")), seconds)
+
+
+def _progress_reporter(ctx: JobContext):
+    """videocr's progress_callback(phase_name, percent) as `ctx.progress`.
+
+    videocr calls it for every decoded frame, from more than one thread, so the
+    last value is compared and only changes are emitted: a 30 s window is 750
+    frames at 25 fps and the GUI thread does not need 750 events for it. The
+    lock makes the compare-and-emit atomic, which matters because the dialogue
+    and label phases can report concurrently.
+
+    videocr counts each phase from 0 to 100 % of ITSELF, so reporting its
+    percentages straight through makes the bar hit 100 % and snap back to 0
+    when the label pass starts -- the proof row has no "step 1 of 2" line to
+    explain that, so it just reads as a broken bar. The two phases are mapped
+    onto one monotonic sweep here instead, split at the measured share
+    (PROOF_DIALOGUE_SHARE): dialogue owns the first part, labels the rest.
+    Progress never moves backwards, even if a late report from the dialogue
+    threads arrives after the first label one.
+    """
+    lock = threading.Lock()
+    last: list[tuple[str, int] | None] = [None]
+    high_water = [0.0]
+
+    def report(phase_name: str, percent: int) -> None:
+        percent = max(0, min(100, int(percent)))
+        with lock:
+            if last[0] == (phase_name, percent):
+                return
+            last[0] = (phase_name, percent)
+            share = PROOF_DIALOGUE_SHARE
+            labels = "label" in phase_name.lower()
+            fraction = share + (1.0 - share) * percent / 100.0 if labels \
+                else share * percent / 100.0
+            fraction = max(high_water[0], fraction)
+            high_water[0] = fraction
+            ctx.progress(fraction, phase_name)
+
+    return report

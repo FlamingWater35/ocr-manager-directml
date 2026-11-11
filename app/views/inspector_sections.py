@@ -30,7 +30,7 @@ from app.state_text import (
     ranges_text,
 )
 from app.theme import tokens
-from app.widgets.base import Button, ConfBar, KvRow, SectionHeader, repolish
+from app.widgets.base import Button, ConfBar, KvRow, ProgressBar, SectionHeader, repolish
 
 PROOF_LINES_SHOWN = 6             # more recognised lines than this hide behind "Show all"
 PULSE_MS = 1400
@@ -47,6 +47,8 @@ NO_LINES_TEXT = "No subtitles recognised in this window — check crop and brigh
 APPLY_ALL_TITLE = "Apply to all files"
 RUNNING_TEXT = "Running on {window}…"
 RUNNING_UNKNOWN_TEXT = "Running…"            # defensive: run_proof refuses an unknown duration
+CANCEL_TEXT = "Cancel"
+CANCELLING_TEXT = "Cancelling…"
 HINT_TEXT = "↻ Re-detect the other {count} using this {what} as a hint"
 # Count 0: the offer is still shown, disabled, so the user can see there is
 # nothing else to re-detect -- but "the other 0" reads as a template with a
@@ -259,9 +261,20 @@ class ProofSection(Section):
 
     The "T run" button is disabled exactly while that file's proof runs, or
     while the file has not been scanned and so has no window to run on
-    (`set_runnable`), and so is the T key that shares its command (ruling 5)."""
+    (`set_runnable`), and so is the T key that shares its command (ruling 5).
+
+    While a proof runs it also shows a progress bar and a Cancel button
+    (`show_running` / `set_progress`). The bar is driven by videocr's own
+    frame progress through the 30 s window, so it advances steadily rather
+    than jumping when a phase ends; before the first report arrives it shows
+    an empty track with the window text, which reads as "starting" and not as
+    a stuck 0 %. Cancel is cooperative: it asks the controller, and the
+    section keeps showing "Cancelling…" until the job's terminal event
+    replaces this presentation, so a slow frame cannot make the button look
+    like it did nothing."""
 
     run_requested = pyqtSignal()
+    cancel_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -280,6 +293,20 @@ class ProofSection(Section):
         self._pulse.setEndValue(1.0)
         self._pulse.setEasingCurve(QEasingCurve.Type.InOutSine)
         self._pulse.setLoopCount(-1)
+        # The running row: the bar takes the width, Cancel sits beside it.
+        self.progress_row = QWidget()
+        progress_layout = QHBoxLayout(self.progress_row)
+        progress_layout.setContentsMargins(0, tokens.px(6), 0, 0)
+        progress_layout.setSpacing(tokens.px(8))
+        self.progress_bar = ProgressBar()
+        progress_layout.addWidget(self.progress_bar, 1)
+        self.cancel_button = small_button("Cancel", "ghost")
+        self.cancel_button.clicked.connect(self._on_cancel_clicked)
+        progress_layout.addWidget(self.cancel_button, 0)
+        self.body.addWidget(self.progress_row)
+        self._cancelling = False
+        self._running = False
+        self._window_text = ""
         self._lines: list[_OcrLine] = []
         self._lines_box = QVBoxLayout()
         self._lines_box.setContentsMargins(0, 0, 0, 0)
@@ -321,8 +348,34 @@ class ProofSection(Section):
         self.run_button.setEnabled(False)
         self.status_label.setText(RUNNING_TEXT.format(window=window_text) if window_text
                                   else RUNNING_UNKNOWN_TEXT)
+        self._window_text = window_text or ""
         self.status_label.show()
         self._pulse.start()
+        self._running = True
+        self._cancelling = False
+        self.cancel_button.setText(CANCEL_TEXT)
+        self.cancel_button.setEnabled(True)
+        self.progress_bar.set_value(0.0)
+        self.progress_row.show()
+
+    def set_progress(self, fraction: float, phase: str = "") -> None:
+        """A running proof's own progress (0-1) and phase name, from videocr.
+
+        Ignored unless the section is showing a running proof: a report that
+        arrives after the result must not resurrect the bar. The guard is a
+        flag, not `isVisible()` -- a section built but not yet shown (a
+        detached inspector, a test) is not visible, and its progress must
+        still be recorded so the first paint is correct."""
+        if not self._running or self._cancelling:
+            return
+        self.progress_bar.set_value(fraction)
+        # The phase is what the OCR pass is doing now ("Extracting dialogue",
+        # "Extracting labels"); it belongs next to the window, not instead of
+        # it, so the window stays readable while the percentage moves.
+        window = self._window_text
+        percent = round(max(0.0, min(1.0, fraction)) * 100)
+        parts = [part for part in (window, phase, f"{percent}%") if part]
+        self.status_label.setText(" · ".join(parts) if parts else RUNNING_UNKNOWN_TEXT)
 
     def show_result(self, result, *, stale: bool = False) -> None:
         """`stale`: the file's crop, brightness or time ranges changed since
@@ -353,6 +406,18 @@ class ProofSection(Section):
 
     # --- internals -----------------------------------------------------------------
 
+    def _on_cancel_clicked(self) -> None:
+        """Ask once. The bar and the status stay where they are, the button
+        says it is waiting, and the job's own terminal event ends this
+        presentation -- there is no second click to send, and no state the
+        section has to guess at."""
+        if self._cancelling:
+            return
+        self._cancelling = True
+        self.cancel_button.setText(CANCELLING_TEXT)
+        self.cancel_button.setEnabled(False)
+        self.cancel_requested.emit()
+
     def _reset(self) -> None:
         self._result = None
         self._pulse.stop()
@@ -360,6 +425,11 @@ class ProofSection(Section):
         self.status_label.hide()
         self.run_button.setEnabled(self._runnable)
         self._show_lines([])
+        self.progress_row.hide()
+        self.cancel_button.setText(CANCEL_TEXT)
+        self.cancel_button.setEnabled(True)
+        self._cancelling = False
+        self._running = False
 
     def _show_all(self) -> None:
         self._expanded = True

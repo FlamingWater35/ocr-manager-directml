@@ -222,5 +222,9 @@ MINI_WIDTH_BASE = 90
 MINI_WIDTH = px(MINI_WIDTH_BASE)    # .mini (MiniProgress's track)
 MINI_HEIGHT_BASE = 4
 MINI_HEIGHT = px(MINI_HEIGHT_BASE)
+# .progress (ProgressBar, the proof section's running row): full width, a touch
+# taller than .bar so a bar that spans the inspector is visible at a glance.
+PROGRESS_HEIGHT_BASE = 5
+PROGRESS_HEIGHT = px(PROGRESS_HEIGHT_BASE)
 DOT_SIZE_BASE = 7
 DOT_SIZE = px(DOT_SIZE_BASE)       # .dot

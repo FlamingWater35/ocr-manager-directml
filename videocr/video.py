@@ -551,6 +551,8 @@ class Video:
                         elif self.pred_frames:
                             self.pred_frames[-1].end_index = frame_idx
                             self.pred_frames[-1].pts_end = pts
+                        if progress is not None:
+                            progress.update(1)          # see the note on "frame" below
                     elif msg_type == "candidate":
                         # Buffer an alternative reading for the CURRENT subtitle.
                         # Whether it gets OCR'd is decided when the subtitle's
@@ -593,6 +595,15 @@ class Video:
                         batch_pts_start.append(pts)
                         batch_pts_end.append(pts)
                         batch_candidates.append([])
+                        if progress is not None:
+                            # The consumer counts the frames it RECEIVES, and
+                            # the producer counts only the ones it drops, so
+                            # together they count every frame of the window
+                            # once. That keeps the bar moving while the OCR
+                            # batches run -- a producer-only count finished at
+                            # the last frame READ, half the wall time early on
+                            # a 4K window (see ProgressTracker).
+                            progress.update(1)
             finally:
                 producer.join()
 
@@ -979,7 +990,13 @@ class Video:
                             queue.put(("frame", frame, i + ocr_start, current_pts))
                             frames_in_subtitle = 0
                             candidates_sent = 0
-                        if progress is not None:
+                        elif progress is not None:
+                            # Only frames that are NOT queued count here: the
+                            # consumer counts every frame it receives, so the
+                            # two halves sum to the frame total exactly. A
+                            # producer-only count reached 100 % when the last
+                            # frame was read, while the OCR batches still had
+                            # half the wall time to run (see ProgressTracker).
                             progress.update(1)
                         continue
                     else:
@@ -1012,8 +1029,6 @@ class Video:
                                     candidates_sent += 1
                                 queue.put(("extend", i + ocr_start, current_pts))
                                 prev_grey = grey
-                                if progress is not None:
-                                    progress.update(1)
                                 continue
 
                         # Different text - OCR new subtitle
@@ -1021,8 +1036,6 @@ class Video:
                         queue.put(("frame", frame, i + ocr_start, current_pts))
                         frames_in_subtitle = 0
                         candidates_sent = 0
-                        if progress is not None:
-                            progress.update(1)
                         continue
 
                 # Non-brightness-filtered path: use original similarity check
@@ -1040,8 +1053,6 @@ class Video:
                                 candidates_sent += 1
                             queue.put(("extend", i + ocr_start, current_pts))
                             prev_grey = grey
-                            if progress is not None:
-                                progress.update(1)
                             continue
                     prev_grey = grey
 
@@ -1049,8 +1060,6 @@ class Video:
                 queue.put(("frame", frame, i + ocr_start, current_pts))
                 frames_in_subtitle = 0
                 candidates_sent = 0
-                if progress is not None:
-                    progress.update(1)
             else:
                 v.read()
 

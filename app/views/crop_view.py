@@ -1273,12 +1273,18 @@ class _SpinPair(QWidget):
             spin.setRange(0, 1)
             spin.setFixedWidth(SPIN_WIDTH)
             spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+            # The arrows are hidden with QSS, not with ButtonSymbols.NoButtons:
+            # NoButtons plus any QSS border makes Qt lay the internal QLineEdit
+            # out 1 px wide, so the value is present in text() but nothing is
+            # drawn (measured on PyQt6 6.10; see the same note in
+            # folder_settings.py). UpDownArrows at width 0 keeps the edit full
+            # width and looks identical.
             spin.setStyleSheet(
                 f"QSpinBox {{ background: {tokens.BG}; color: {tokens.TXT}; "
                 f"border: 1px solid {tokens.LINE2}; border-radius: {tokens.RADIUS_XS}px; "
                 f"padding: {tokens.px(1)}px {tokens.px(4)}px; "
                 f"font-size: {round(tokens.FONT_SIZE_BODY)}px; }}"
+                f"QSpinBox::up-button, QSpinBox::down-button {{ width: 0; border: none; }}"
                 f"QSpinBox:focus {{ border-color: {tokens.ACC}; }}")
             layout.addWidget(spin)
         self.first.valueChanged.connect(lambda _value: self._on_changed(self.ORIGIN))

@@ -16,9 +16,10 @@ from pathlib import Path
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QLabel, QPushButton
+from PyQt6.QtWidgets import QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget
 
 import app
+from ui import editor_geometry
 from app.theme import qss, tokens
 from app.widgets import base
 from app.widgets.base import (
@@ -783,6 +784,64 @@ def test_scaled_padding_never_clips_a_button_label(qapp):
                 text = button.fontMetrics().horizontalAdvance(button.text())
                 assert button.sizeHint().width() >= text + 2 * tokens.px(3)
                 assert button.sizeHint().height() > button.fontMetrics().height()
+
+
+def test_a_spin_box_with_hidden_buttons_still_paints_its_value(qapp):
+    """The user's "values not showing on many UI elements", pinned.
+
+    `ButtonSymbols.NoButtons` combined with any QSS `border` on a
+    `QAbstractSpinBox` makes Qt lay the internal `QLineEdit` out **1 px wide**:
+    `text()` still returns the value, the box keeps its size, and nothing is
+    painted -- a rounded empty box with a thin caret. Measured on PyQt6 6.10
+    under this theme: NoButtons leaves the edit 1 px and zero text pixels,
+    UpDownArrows (with the arrows hidden by a 0-width `::up-button`) leaves it
+    131 px.
+
+    Both halves matter: the first says the guard catches the bug, the second
+    says the fix the app uses is not itself the bug. Without the theme applied
+    there is no QSS border and the bug cannot appear at all, which is why this
+    test applies it explicitly."""
+    qss.apply_theme(qapp)
+    host = QWidget()
+    host.setObjectName("FolderSettings")           # the sheet's QSS scope: the border comes from here
+    layout = QVBoxLayout(host)
+    host.resize(400, 200)
+    host.show()
+
+    def build(buttons) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(0, 100)
+        spin.setValue(95)
+        spin.setSuffix(" %")
+        spin.setFixedWidth(tokens.px(105))
+        if buttons is not None:
+            spin.setButtonSymbols(buttons)
+        layout.addWidget(spin)
+        return spin
+
+    broken = build(QSpinBox.ButtonSymbols.NoButtons)
+    fixed = build(None)
+    qapp.processEvents()
+
+    assert broken.text() == "95 %" and fixed.text() == "95 %"     # both hold the value
+    assert not editor_geometry.shows_its_text(broken)             # ... and one does not draw it
+    assert editor_geometry.shows_its_text(fixed)
+    host.close()
+
+
+def test_the_app_never_uses_button_symbols_no_buttons():
+    """The guard above only helps if the app does not reintroduce the trigger.
+    The two places that want arrow-less spin boxes hide the arrows in QSS
+    instead (`QAbstractSpinBox::up-button { width: 0 }`), which looks the same
+    and keeps the value visible; see the comments in folder_settings.py and
+    crop_view.py."""
+    offenders = []
+    for path in sorted((Path(__file__).resolve().parents[2] / "app").rglob("*.py")):
+        for number, line in enumerate(path.read_text("utf-8").splitlines(), start=1):
+            code = line.split("#", 1)[0]                   # a comment naming it is fine
+            if "NoButtons" in code:
+                offenders.append(f"{path.name}:{number}")
+    assert offenders == []
 
 
 def _font_size_rules(sheet: str) -> list[tuple[str, float]]:

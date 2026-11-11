@@ -66,6 +66,7 @@ from core.jobs.apply import (
     set_manual_time_ranges,
     set_skipped,
 )
+from core.jobs import detect_jobs
 from core.jobs.detect_jobs import (
     THUMB_HEIGHT,
     AudioProfileJob,
@@ -2443,9 +2444,10 @@ def test_proof_job_runs_the_files_exact_ocr_call_on_one_window(monkeypatch):
     assert call["cancel_event"] is ctx.cancel_event
     defaults = {name: p.default for name, p in fake.signature.parameters.items()}
     passed = {name: value for name, value in call.items()
-              if name not in ("time_ranges", "cancel_event")
+              if name not in ("time_ranges", "cancel_event", "progress_callback")
               and (name in expected_kwargs or value != defaults[name])}
     assert passed == expected_kwargs
+    assert callable(call["progress_callback"])          # the bar's own reporting, see below
     assert isinstance(out, ProofResult)
     assert out.file == "a.mp4"
     assert out.window == (407.0, 437.0)                         # exactly what OCR ran on: "6:47"-"7:17"
@@ -2565,6 +2567,102 @@ def test_a_cancelled_proof_returns_none(monkeypatch):
 
     monkeypatch.setattr(api, "get_subtitles", Recording(api.get_subtitles, during=during))
     assert job.run(ctx) is None
+
+
+def test_the_proof_reports_frame_progress_and_never_repeats_a_value(monkeypatch):
+    """The 30 s proof's progress bar is driven by videocr's own frame counter:
+    `progress_callback(phase, percent)` reaches the runner as a 0-1 fraction.
+    videocr calls it once per frame from more than one thread, so identical
+    (phase, percent) pairs are dropped -- a 30 s window at 25 fps would
+    otherwise queue 750 events for a bar that cannot show them.
+
+    videocr counts each phase from 0 to 100 % of itself, so the fractions are
+    mapped onto one sweep split at PROOF_DIALOGUE_SHARE: dialogue fills the
+    first part, labels the rest. A label report at 0 % therefore lands exactly
+    where dialogue's 100 % did -- the bar holds still and only the phase name
+    changes."""
+    job = ProofOcrJob(PROJECT_DIR, _entry_for_proof(), FolderSettings())
+    ctx = _ctx(job)
+    reports = []
+
+    def during(call):
+        callback = call["progress_callback"]
+        for phase, percent in (("Extracting dialogue", 0), ("Extracting dialogue", 0),
+                               ("Extracting dialogue", 12), ("Extracting dialogue", 12),
+                               ("Extracting dialogue", 100), ("Extracting labels", 0),
+                               ("Extracting labels", 40), ("Extracting labels", 40),
+                               ("Extracting labels", 100)):
+            callback(phase, percent)
+        return _dialogue_ass()
+
+    monkeypatch.setattr(api, "get_subtitles", Recording(api.get_subtitles, during=during))
+    monkeypatch.setattr(ctx, "progress", lambda fraction, message="": reports.append((fraction, message)))
+    job.run(ctx)
+
+    share = detect_jobs.PROOF_DIALOGUE_SHARE
+    assert [phase for _, phase in reports] == [
+        "Extracting dialogue", "Extracting dialogue", "Extracting dialogue",
+        "Extracting labels", "Extracting labels", "Extracting labels"]
+    fractions = [fraction for fraction, _ in reports]
+    assert fractions == pytest.approx([0.0, share * 0.12, share, share,
+                                       share + (1 - share) * 0.4, 1.0])
+    assert fractions == sorted(fractions)          # never backwards
+
+
+def test_proof_progress_never_moves_backwards_across_the_phase_switch(monkeypatch):
+    """The bug this mapping exists for: videocr finishes dialogue at 100 % and
+    starts labels at 0 %, which a straight-through bar shows as 100 % -> 0 %.
+    The label pass runs in the same job as the dialogue threads' last reports,
+    so a late dialogue report must not drag the bar back either."""
+    job = ProofOcrJob(PROJECT_DIR, _entry_for_proof(), FolderSettings())
+    ctx = _ctx(job)
+    reports = []
+
+    def during(call):
+        callback = call["progress_callback"]
+        for phase, percent in (("Extracting dialogue", 100), ("Extracting labels", 0),
+                               ("Extracting labels", 5), ("Extracting dialogue", 50),
+                               ("Extracting labels", 60)):
+            callback(phase, percent)
+        return _dialogue_ass()
+
+    monkeypatch.setattr(api, "get_subtitles", Recording(api.get_subtitles, during=during))
+    monkeypatch.setattr(ctx, "progress", lambda fraction, message="": reports.append(fraction))
+    job.run(ctx)
+
+    assert reports == sorted(reports), reports
+    assert reports[0] == detect_jobs.PROOF_DIALOGUE_SHARE      # dialogue's 100 %
+    assert reports[-1] > reports[0]                            # ... and labels got past it
+    assert reports[-1] <= 1.0
+
+
+def test_the_dialogue_share_is_a_measured_prior_not_a_guess():
+    """The split is measured on test_media/test_video.mkv's real 30 s proof
+    window (4K 10-bit): dialogue's frames end at 32.8 s, its last OCR batch at
+    67.2 s, the label scan runs to 200 s. So dialogue owns a third of the wall,
+    not a half and not a tenth. A change outside that range would mean the
+    measurement was not refreshed."""
+    assert 0.2 <= detect_jobs.PROOF_DIALOGUE_SHARE <= 0.5
+
+
+def test_proof_progress_is_clamped_to_the_bar(monkeypatch):
+    """videocr's percentages are ints it computes itself; a buggy or future
+    one must not move the bar past its ends (the runner clamps too, but the
+    fraction this job hands it is what a test can see)."""
+    job = ProofOcrJob(PROJECT_DIR, _entry_for_proof(), FolderSettings())
+    ctx = _ctx(job)
+    reports = []
+
+    def during(call):
+        callback = call["progress_callback"]
+        callback("Extracting dialogue", -5)
+        callback("Extracting dialogue", 250)
+        return _dialogue_ass()
+
+    monkeypatch.setattr(api, "get_subtitles", Recording(api.get_subtitles, during=during))
+    monkeypatch.setattr(ctx, "progress", lambda fraction, message="": reports.append(fraction))
+    job.run(ctx)
+    assert reports == [0.0, detect_jobs.PROOF_DIALOGUE_SHARE]
 
 
 # --------------------------------------------------------------------------

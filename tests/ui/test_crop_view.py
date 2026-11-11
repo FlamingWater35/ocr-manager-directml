@@ -23,6 +23,7 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from ui import editor_geometry
 from app import masking
 from app.controller import ProjectController
 from app.main_window import MainWindow
@@ -787,6 +788,22 @@ def test_the_spin_pairs_commit_through_set_crop(make_tab):
     assert harness.crop() == (300, 800, 1300, 60)
     assert harness.entry().crop.source == Source.MANUAL
     assert harness.tab.canvas.box() == (300, 800, 1300, 60)
+
+
+def test_every_spin_box_in_the_pair_paints_its_value(make_tab):
+    """A regression the user reported as "values not showing on many UI
+    elements": `ButtonSymbols.NoButtons` plus any QSS border makes Qt lay the
+    internal QLineEdit out 1 px wide, so `text()` holds the value and nothing
+    is painted. Measured here on the real widgets, at the real sizes."""
+    harness = make_tab()
+    panel = harness.tab.panel
+    panel.show_box(BOX)
+    QApplication.processEvents()
+    spins = [panel.x_row.first, panel.x_row.second, panel.y_row.first, panel.y_row.second]
+    assert [spin.value() for spin in spins] == [BOX[0], BOX[2], BOX[1], BOX[3]]
+    for spin in spins:
+        assert editor_geometry.shows_its_text(spin), (spin.value(), editor_geometry.text_width(spin))
+        assert editor_geometry.text_width(spin) >= 40        # a 4-digit box value has to fit
 
 
 def test_a_disagreeing_sample_gets_a_warn_row_that_selects_it(make_tab):

@@ -6,6 +6,8 @@ extraction and label scanning phases.
 
 from __future__ import annotations
 
+import threading
+
 
 class ProgressTracker:
     """Progress tracking with callback dispatch for dialogue and labels.
@@ -15,6 +17,17 @@ class ProgressTracker:
     - "Extracting labels" during all label scanning phases
 
     Each range independently tracks 0-100% progress for its task.
+
+    `update()` is thread-safe. Dialogue extraction reports from two threads on
+    purpose: the frame producer counts the frames it DROPS (no text yet, or the
+    text just disappeared -- those never reach the consumer), and the consumer
+    counts the frames it receives. Together they count every processed frame
+    exactly once, which is what keeps the bar moving until the OCR batches have
+    actually drained instead of reaching 100 % when the last frame was merely
+    READ. Measured on test_media/test_video.mkv's 30 s proof window (4K 10-bit):
+    a producer-only count hit 100 % at 32.8 s while the OCR work ran to 62.3 s,
+    i.e. the bar sat still for half a minute; with the split the longest silent
+    stretch is 10.9 s and 100 % lands on the last batch.
     """
 
     def __init__(self, include_dialogue: bool = True, include_labels: bool = True,
@@ -34,6 +47,7 @@ class ProgressTracker:
         self._phase_progress = 0.0
         self._phase_total = 0
         self._completed_weight = 0.0  # Accumulated weight from completed phases within current task
+        self._lock = threading.Lock()
         self._configure_label_weights()
 
     def _configure_label_weights(self):
@@ -108,24 +122,28 @@ class ProgressTracker:
 
         Args:
             n: Number of units completed.
+
+        Thread-safe: dialogue extraction reports from the frame producer and
+        from the consumer that runs the OCR batches (see the class docstring).
         """
-        if self._current_phase is None:
-            return
+        with self._lock:
+            if self._current_phase is None:
+                return
 
-        self._phase_progress += n
+            self._phase_progress += n
 
-        # Calculate progress based on current task
-        if self._current_task == 'dialogue':
-            # Dialogue: simple 0-100% based on frames
-            phase_fraction = min(1.0, self._phase_progress / self._phase_total)
-            total_progress = phase_fraction * 100
-        else:
-            # Labels: weighted across phases
-            phase_weight = self._label_weights.get(self._current_phase, 0)
-            phase_fraction = min(1.0, self._phase_progress / self._phase_total)
-            current_contribution = phase_weight * phase_fraction
-            total_progress = self._completed_weight + current_contribution
+            # Calculate progress based on current task
+            if self._current_task == 'dialogue':
+                # Dialogue: simple 0-100% over read + OCR'd frames
+                phase_fraction = min(1.0, self._phase_progress / self._phase_total)
+                total_progress = phase_fraction * 100
+            else:
+                # Labels: weighted across phases
+                phase_weight = self._label_weights.get(self._current_phase, 0)
+                phase_fraction = min(1.0, self._phase_progress / self._phase_total)
+                current_contribution = phase_weight * phase_fraction
+                total_progress = self._completed_weight + current_contribution
 
-        if self.progress_callback:
-            task_name = 'Extracting dialogue' if self._current_task == 'dialogue' else 'Extracting labels'
-            self.progress_callback(task_name, int(total_progress))
+            if self.progress_callback:
+                task_name = 'Extracting dialogue' if self._current_task == 'dialogue' else 'Extracting labels'
+                self.progress_callback(task_name, int(total_progress))

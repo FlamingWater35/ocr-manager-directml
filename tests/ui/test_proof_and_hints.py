@@ -21,6 +21,8 @@ from app.main_window import MainWindow
 from app.state_text import series_median_brightness
 from app.theme import tokens
 from app.views.inspector_sections import (
+    CANCEL_TEXT,
+    CANCELLING_TEXT,
     NO_LINES_TEXT,
     PROOF_LINES_SHOWN,
     SECTION_MARGIN_X,
@@ -177,9 +179,11 @@ def menu_actions(menu) -> dict:
 
 
 def finish_proof(window, fake_runner, name: str, lines=(), seconds: float = 4.1,
-                 window_seconds=(SAMPLE_TIME, SAMPLE_TIME + 30.0)) -> None:
+                 window_seconds=(SAMPLE_TIME, SAMPLE_TIME + 30.0), event_type: str = "finished") -> None:
     submission = fake_runner.last("proof", name)
-    fake_runner.finish(submission, ProofResult(name, window_seconds, list(lines), seconds))
+    fake_runner.finish(submission, None if event_type == "cancelled" else
+                       ProofResult(name, window_seconds, list(lines), seconds),
+                       event_type=event_type)
     window.controller.drain_events()
 
 
@@ -334,6 +338,142 @@ def test_a_proof_of_a_file_whose_duration_is_unknown_says_so(make_window):
     window.inspector.proof_button.click()
     assert window.inspector.proof_note.text() == "Can't run yet: This file hasn't been scanned yet"
     assert window.inspector.proof_note.property("tone") == "warn"
+
+
+# --------------------------------------------------------------------------
+# Proof progress and cancel
+# --------------------------------------------------------------------------
+
+def test_a_running_proof_shows_a_bar_and_a_cancel_button(window, fake_runner):
+    """The bar and Cancel belong to the running presentation only: a finished
+    proof shows its lines and neither of them."""
+    inspector = window.inspector
+    name = NAMES[0]
+    assert inspector.proof_progress_row.isHidden()
+    assert inspector.proof_cancel.text() == CANCEL_TEXT
+
+    inspector.proof_button.click()
+    assert not inspector.proof_progress_row.isHidden()
+    assert inspector.proof_bar.value() == 0.0
+    assert inspector.proof_cancel.isEnabled()
+    assert inspector.proof_cancel.text() == CANCEL_TEXT
+
+    finish_proof(window, fake_runner, name, LINES[:2])
+    assert inspector.proof_progress_row.isHidden()
+    assert inspector.proof_bar.value() == 0.0        # the next run starts at 0, not at this one's last
+
+
+def test_progress_from_the_job_moves_the_bar_and_the_status_line(window, fake_runner):
+    """videocr reports frame progress through the window, so the bar tracks
+    time decoded, not phases completed. The status line keeps the window and
+    adds the phase and the percentage."""
+    inspector = window.inspector
+    name = NAMES[0]
+    inspector.proof_button.click()
+    submission = fake_runner.last("proof", name)
+
+    fake_runner.progress(submission, 0.25, "Extracting dialogue")
+    window.controller.drain_events()
+    assert inspector.proof_bar.value() == pytest.approx(0.25)
+    assert inspector.proof_status.text() == f"{WINDOW_TEXT} · Extracting dialogue · 25%"
+
+    fake_runner.progress(submission, 0.8, "Extracting dialogue")
+    window.controller.drain_events()
+    assert inspector.proof_bar.value() == pytest.approx(0.8)
+    assert inspector.proof_status.text() == f"{WINDOW_TEXT} · Extracting dialogue · 80%"
+
+
+def test_a_progress_report_for_another_file_leaves_this_one_alone(window, fake_runner):
+    controller, inspector, queue = window.controller, window.inspector, window.queue
+    first, second = NAMES[0], NAMES[1]
+    queue.select(first)
+    inspector.proof_button.click()
+    queue.select(second)
+    inspector.proof_button.click()
+
+    fake_runner.progress(fake_runner.last("proof", first), 0.6, "Extracting dialogue")
+    controller.drain_events()
+    queue.select(first)
+    assert inspector.proof_bar.value() == pytest.approx(0.6)   # the first file's own progress
+
+    queue.select(second)
+    assert inspector.proof_bar.value() == 0.0                  # the second has reported nothing yet
+
+
+def test_progress_that_arrives_after_the_result_does_not_bring_the_bar_back(window, fake_runner):
+    """The OCR pass reports from helper threads, so a fraction can be queued
+    behind the terminal event. The result wins: the bar stays hidden."""
+    inspector = window.inspector
+    name = NAMES[0]
+    inspector.proof_button.click()
+    submission = fake_runner.last("proof", name)
+    finish_proof(window, fake_runner, name, LINES[:1])
+    assert inspector.proof_progress_row.isHidden()
+
+    window.controller._events.put(_late_progress(name))
+    window.controller.drain_events()
+    assert inspector.proof_progress_row.isHidden()
+    assert inspector.proof_texts() == LINE_TEXTS[:1]
+
+
+def _late_progress(name: str):
+    from core.jobs.runner import JobEvent
+    return JobEvent("progress", f"proof:{name}", "proof", name, job_id=9999,
+                    progress=0.9, message="Extracting dialogue")
+
+
+def test_cancel_asks_the_runner_once_and_waits_for_the_job(window, fake_runner):
+    inspector, name = window.inspector, NAMES[0]
+    inspector.proof_button.click()
+    assert fake_runner.cancelled_keys == []
+
+    inspector.proof_cancel.click()
+    assert fake_runner.cancelled_keys == [f"proof:{name}"]
+    assert inspector.proof_cancel.text() == CANCELLING_TEXT
+    assert not inspector.proof_cancel.isEnabled()
+    inspector.proof_cancel.click()                   # a second click sends nothing
+    assert fake_runner.cancelled_keys == [f"proof:{name}"]
+    assert not inspector.proof_progress_row.isHidden()   # still running until the job ends
+
+    finish_proof(window, fake_runner, name, [], event_type="cancelled")
+    assert inspector.proof_progress_row.isHidden()
+    assert inspector.proof_cancel.text() == CANCEL_TEXT
+    assert inspector.proof_cancel.isEnabled()
+    assert inspector.proof_texts() == []
+    assert inspector.proof_note.text() == ""         # a cancelled proof has no result to describe
+    assert inspector.proof_button.isEnabled()
+
+
+def test_a_progress_report_while_cancelling_leaves_the_button_alone(window, fake_runner):
+    """The OCR pass may report a frame after Cancel was pressed; that must not
+    re-enable the button and invite a second request."""
+    inspector, name = window.inspector, NAMES[0]
+    inspector.proof_button.click()
+    submission = fake_runner.last("proof", name)
+    inspector.proof_cancel.click()
+
+    fake_runner.progress(submission, 0.95, "Extracting dialogue")
+    window.controller.drain_events()
+    assert inspector.proof_cancel.text() == CANCELLING_TEXT
+    assert not inspector.proof_cancel.isEnabled()
+
+
+def test_cancel_is_only_offered_while_a_proof_runs(window, fake_runner):
+    controller, inspector, name = window.controller, window.inspector, NAMES[0]
+    inspector.proof_button.click()
+    finish_proof(window, fake_runner, name, LINES[:1])
+    inspector.proof_cancel.click()                   # nothing is running: no request
+    assert fake_runner.cancelled_keys == []
+    assert controller.proof_pending(name) is False
+
+
+def test_the_progress_bar_is_told_apart_from_a_confidence_bar(window):
+    """Both are bars, but only one is full width: the proof's has to span the
+    inspector, while `ConfBar`'s track is the mockup's 74 px."""
+    inspector = window.inspector
+    inspector.proof_button.click()
+    assert inspector.proof_bar.width() > tokens.BAR_WIDTH * 2
+    assert inspector.proof_bar.height() == tokens.PROGRESS_HEIGHT
 
 
 # --------------------------------------------------------------------------

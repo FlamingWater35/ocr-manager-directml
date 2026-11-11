@@ -289,6 +289,7 @@ class ProjectController(QObject):
     strips_ready = pyqtSignal(str)              # file: strips of the requested crop box arrived
     proof_started = pyqtSignal(str)
     proof_finished = pyqtSignal(str)            # result in proof_result(file)
+    proof_progress = pyqtSignal(str)            # a running proof's fraction/phase changed (proof_progress(file))
     run_changed = pyqtSignal()                  # run started/progress/finished/paused
     run_subtitle = pyqtSignal(str, float, float, str)
     log_appended = pyqtSignal(str, str)         # key ("Pipeline" or filename), text
@@ -332,6 +333,7 @@ class ProjectController(QObject):
         self._proof_results: dict[str, ProofResult] = {}
         self._proof_outstanding: dict[str, int] = {}
         self._proof_stale: dict[str, int] = {}          # proofs of removed entries, still to end: never reported
+        self._proof_progress: dict[str, tuple[float, str]] = {}   # file -> (fraction, phase) of the running proof
         self._clipboard: dict | None = None
         self._done: set[str] = set()
         self._user_paused = False
@@ -354,6 +356,7 @@ class ProjectController(QObject):
         self._emit_frames: list[tuple[str, float]] = []
         self._emit_strips: list[str] = []
         self._emit_proofs: list[str] = []
+        self._emit_progress: list[str] = []
 
     # --- lifecycle ------------------------------------------------------------------
 
@@ -593,6 +596,24 @@ class ProjectController(QObject):
 
     def proof_pending(self, name: str) -> bool:
         return self._proof_outstanding.get(name, 0) > 0
+
+    def running_proof_progress(self, name: str) -> tuple[float, str] | None:
+        """(fraction, phase) of the file's running proof, or None when none is
+        running or nothing has been reported yet. The fraction is videocr's own
+        frame progress through the window (see ProofOcrJob). Named apart from
+        the `proof_progress` signal, which carries the same information."""
+        return self._proof_progress.get(name)
+
+    def cancel_proof(self, name: str) -> None:
+        """Request cancel of the file's proof, running or queued (the Inspector's
+        Cancel). Cooperative, like every other cancel: the OCR pass stops at the
+        next frame boundary, `run()` returns None and the job ends "cancelled",
+        which `_on_proof_event` already treats as "no result, stop showing it
+        as running". Cancelling a proof that is not running is a no-op, so a
+        double click on a button that is about to disable itself is safe."""
+        self._check_alive()
+        self._runner.cancel(f"proof:{name}")
+        self._proof_progress.pop(name, None)
 
     def activity(self) -> ActivitySnapshot:
         return self._activity.snapshot(paused=self._user_paused)
@@ -1015,6 +1036,7 @@ class ProjectController(QObject):
         self._runner.submit(ProofOcrJob(project.path, project.files[name], project.folder))
         self._proof_outstanding[name] = self._proof_outstanding.get(name, 0) + 1
         self._proof_results.pop(name, None)
+        self._proof_progress.pop(name, None)          # a new proof starts at 0, not at the last one's fraction
         self.proof_started.emit(name)
 
     def pause_autopilot(self) -> None:
@@ -1338,8 +1360,20 @@ class ProjectController(QObject):
         if event.type == "log":
             self._log(name or PIPELINE_LOG, event.message)
             return
+        if event.type == "progress":
+            # Only a proof that is still outstanding has anything to show: a
+            # progress event can arrive after the terminal one (the runner
+            # delivers whatever the job emitted before it returned, and the
+            # OCR pass reports from helper threads), and a stale fraction must
+            # not put the bar back on screen after the result.
+            if name is not None and self._proof_outstanding.get(name, 0) > 0:
+                self._proof_progress[name] = (float(event.progress or 0.0), event.message or "")
+                self._emit_progress.append(name)
+            return
         if event.type not in TERMINAL_EVENTS:
             return
+        if name is not None:
+            self._proof_progress.pop(name, None)
         if event.type == "failed":
             self._log(DETECTIONS_LOG, f"{name}: proof failed: {event.message}\n{event.error}")
         stale = self._proof_stale.get(name, 0)
@@ -1476,6 +1510,7 @@ class ProjectController(QObject):
         """Emit the signals collected while handling events or a command."""
         files, folder, activity, run = self._emit_files, self._emit_folder, self._emit_activity, self._emit_run
         changed, thumbnails, proofs = self._emit_changed, self._emit_thumbnails, self._emit_proofs
+        progress = self._emit_progress
         frames, strips = self._emit_frames, self._emit_strips
         self._reset_emits()
         project = self._project
@@ -1497,6 +1532,9 @@ class ProjectController(QObject):
             for name in dict.fromkeys(proofs):
                 if name in project.files:
                     self.proof_finished.emit(name)
+            for name in dict.fromkeys(progress):
+                if name in project.files:
+                    self.proof_progress.emit(name)
         if activity:
             self.activity_changed.emit()
         if run:
@@ -1582,6 +1620,7 @@ class ProjectController(QObject):
             self._thumbnails.pop(name, None)
             self._frames.clear_file(name)
             self._proof_results.pop(name, None)
+            self._proof_progress.pop(name, None)
             outstanding = self._proof_outstanding.pop(name, 0)
             if outstanding:
                 self._proof_stale[name] = self._proof_stale.get(name, 0) + outstanding

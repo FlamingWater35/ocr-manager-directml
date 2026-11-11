@@ -19,9 +19,10 @@ from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QDoubleSpinBox, QSpinBox
 
+from ui import editor_geometry
 from app.controller import ProjectController
 from app.main_window import MainWindow
-from app.theme import tokens
+from app.theme import qss, tokens
 from app.views.folder_settings import CONTENT_MARGIN, MAX_WIDTH, NAV_WIDTH, FolderSettingsSheet
 from app.views.folder_settings_fields import LANGUAGES, language_label
 from app.widgets.base import Toggle
@@ -338,6 +339,30 @@ def test_editor_kinds_and_ranges(window):
     assert (segment.minimum(), segment.maximum()) == (5.0, 300.0)
     language = sheet.editor("ocr_lang")
     assert isinstance(language, QComboBox) and language.isEditable()
+
+
+def test_every_editor_paints_the_value_it_holds(window, qapp):
+    """The user reported "values not showing on many UI elements": every spin
+    box rendered as an empty box while `text()` held the value. Cause:
+    `ButtonSymbols.NoButtons` plus any QSS border leaves the internal QLineEdit
+    1 px wide -- and the border comes from the THEME, so the theme has to be
+    applied for the measurement to mean anything. Without it this test passes
+    even with the bug present."""
+    qss.apply_theme(qapp)
+    qapp.processEvents()
+    sheet = open_sheet(window)
+    qapp.processEvents()
+    spins = [sheet.editor(field) for field in sheet.fields()
+             if isinstance(sheet.editor(field), (QAbstractSpinBox, QComboBox))]
+    assert len(spins) >= 10                              # the sheet's numbers, not an empty sweep
+    for editor in spins:
+        assert editor_geometry.shows_its_text(editor), (
+            field_name(sheet, editor), editor.text() if hasattr(editor, "text") else "",
+            editor_geometry.text_width(editor))
+
+
+def field_name(sheet: FolderSettingsSheet, editor) -> str:
+    return next((field for field in sheet.fields() if sheet.editor(field) is editor), "?")
 
 
 def test_default_values_are_shown(window):

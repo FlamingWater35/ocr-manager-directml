@@ -136,6 +136,7 @@ class Inspector(QWidget):
         self.detected.redetect_requested.connect(self._redetect)
         self.proof = ProofSection()
         self.proof.run_requested.connect(lambda: self.run_proof_for(self._file))
+        self.proof.cancel_requested.connect(self._cancel_proof)
         self.offer = ChangeOffer()
         self.offer.hint_requested.connect(self._redetect_others)
         self.offer.dismissed.connect(self._dismiss_offer)
@@ -169,6 +170,9 @@ class Inspector(QWidget):
         self.proof_button, self.proof_status, self.proof_note = (
             self.proof.run_button, self.proof.status_label, self.proof.note_label)
         self.proof_show_all = self.proof.show_all_button
+        self.proof_bar = self.proof.progress_bar
+        self.proof_cancel = self.proof.cancel_button
+        self.proof_progress_row = self.proof.progress_row
         self.offer_section, self.offer_note = self.offer, self.offer.note_label
         self.offer_status = self.offer.status_label
         self.hint_buttons, self.this_file_only_button = self.offer.hint_buttons, self.offer.this_file_only_button
@@ -183,6 +187,7 @@ class Inspector(QWidget):
         controller.folder_changed.connect(self.refresh)
         controller.proof_started.connect(self._on_proof_started)
         controller.proof_finished.connect(self._on_proof_event)
+        controller.proof_progress.connect(self._on_proof_progress)
         controller.activity_changed.connect(self._on_activity_changed)
         self.set_file(None)
 
@@ -252,6 +257,16 @@ class Inspector(QWidget):
             if name == self._file:
                 self.proof.show_error(f"Can't run yet: {exc}")
 
+    def _cancel_proof(self) -> None:
+        """The running proof's Cancel button: ask the controller, which cancels
+        the job cooperatively. The section shows "Cancelling…" until the job's
+        terminal event replaces the presentation, so nothing here has to know
+        how long the current frame takes."""
+        name = self._file
+        if name is None or not self._controller.proof_pending(name):
+            return
+        self._controller.cancel_proof(name)
+
     def _median_note(self, entry) -> str:
         """The series-median sentence for the Detected note -- only for a file
         that has a brightness of its own to keep."""
@@ -294,6 +309,16 @@ class Inspector(QWidget):
         if name == self._file:
             self._show_proof()
 
+    def _on_proof_progress(self, name: str) -> None:
+        """A running proof reported a fraction. Only the bar moves: the rest of
+        the section is already showing "Running on ...", and re-running
+        `_show_proof` here would reset the presentation on every frame."""
+        if name != self._file:
+            return
+        progress = self._controller.running_proof_progress(name)
+        if progress is not None:
+            self.proof.set_progress(*progress)
+
     def _show_proof(self) -> None:
         name = self._file
         entry = None if name is None or name not in self._controller.names() \
@@ -306,6 +331,12 @@ class Inspector(QWidget):
             self.proof.show_nothing()
         elif self._controller.proof_pending(name):
             self.proof.show_running(proof_window_clock(entry.sample_time, entry.media.duration))
+            # A proof that was already running when the file was selected has
+            # reported a fraction before this section ever showed it: without
+            # this the bar would start at 0 for a window that is half done.
+            progress = self._controller.running_proof_progress(name)
+            if progress is not None:
+                self.proof.set_progress(*progress)
         elif (result := self._controller.proof_result(name)) is not None:
             self.proof.show_result(result, stale=name in self._stale_proofs)
         else:

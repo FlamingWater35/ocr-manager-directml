@@ -46,7 +46,6 @@ import os
 from PyQt6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRect, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
-    QAbstractSpinBox,
     QApplication,
     QComboBox,
     QCompleter,
@@ -262,7 +261,14 @@ class FolderSettingsSheet(QWidget):
         spin.setRange(field.minimum, field.maximum)
         spin.setSingleStep(field.step)
         spin.setSuffix(field.suffix)
-        spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        # NoButtons is NOT used here, and the arrows are hidden with QSS
+        # instead (`QAbstractSpinBox::up-button` width 0, below). Reason: with
+        # ButtonSymbols.NoButtons AND any QSS border on the spin box, Qt lays
+        # the internal QLineEdit out 1 px wide -- the value is in `text()` and
+        # the widget looks like an empty box with a thin caret. Measured on
+        # PyQt6 6.10: border+NoButtons leaves the edit 1x21 px, while
+        # UpDownArrows with 0-width buttons leaves it 148 px wide. Same visual
+        # result, value actually visible.
         spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         spin.setFixedWidth(tokens.px(EDITOR_WIDTH))

@@ -488,6 +488,52 @@ class MiniProgress(QWidget):
         self._track.set_value(max(0.0, right - left), tokens.BLUE, offset=left)
 
 
+class ProgressBar(QWidget):
+    """`.progress` -- a full-width determinate bar (the proof section's
+    "real OCR of 30 s" row), with the track colour and radius of `_BarTrack`
+    but no fixed width: it takes the room its layout gives it.
+
+    `_BarTrack`/`ConfBar`/`MiniProgress` are fixed-size because the mockup
+    gives them a fixed size (a 74 px confidence bar, a 90 px activity bar).
+    This one has to span an inspector that resizes, so it paints itself
+    instead of hosting a `_BarTrack`. `set_value()` clamps to [0, 1]; the fill
+    is a plain rect clipped by the rounded track, exactly as `_BarTrack`
+    does, so the two read as the same control at different widths."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("ProgressBar")
+        self._fraction = 0.0
+        self.setFixedHeight(tokens.PROGRESS_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def value(self) -> float:
+        return self._fraction
+
+    def set_value(self, fraction: float) -> None:
+        value = max(0.0, min(1.0, float(fraction)))
+        if value == self._fraction:
+            return
+        self._fraction = value
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect())
+        radius = min(float(tokens.RADIUS_XS), rect.height() / 2)
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius, radius)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(tokens.TRACK_BG))
+        painter.drawPath(path)
+        if self._fraction > 0:
+            painter.setClipPath(path)
+            painter.setBrush(QColor(tokens.BLUE))
+            painter.drawRect(QRectF(0, 0, rect.width() * self._fraction, rect.height()))
+        painter.end()
+
+
 class ElidedLabel(QLabel):
     """A single-line label that elides its text to fit its width (a long
     file name or path), keeping the full text in `full_text()` and its

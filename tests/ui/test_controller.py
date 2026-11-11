@@ -51,7 +51,7 @@ from core.jobs.detect_jobs import (
     ThumbnailResult,
 )
 from core.jobs.run import RunFile, RunJob, RunSummary
-from core.jobs.runner import JobRunner, Lane
+from core.jobs.runner import JobEvent, JobRunner, Lane
 from core.jobs.view_cache import wanted
 from core.jobs.view_jobs import FramesResult, StripsResult, WarmJob, WarmResult
 from core.project import (
@@ -866,6 +866,108 @@ def test_hint_redetects_and_proof(make_controller, fake_runner, tmp_project):
     controller.drain_events()
     assert controller.proof_result("ep01.mkv") == result
     assert finished.calls == [("ep01.mkv",)] and not controller.proof_pending("ep01.mkv")
+
+
+def test_a_proofs_progress_reaches_the_gui_as_one_signal_per_change(make_controller, fake_runner,
+                                                                   tmp_project):
+    """The job reports every frame; the controller turns each report into
+    state plus one signal, and drops a report that arrives after the result
+    (videocr reports from helper threads, so one can be queued behind the
+    terminal event)."""
+    names = ["ep01.mkv"]
+    folder = tmp_project(names, config=v2_config(
+        [make_entry("ep01.mkv", crop=BOX, brightness=200, review=ReviewState.REVIEWED)],
+        autopilot_enabled=False))
+    controller = make_controller()
+    controller.open_folder(str(folder))
+    progress = Spy(controller.proof_progress)
+
+    controller.run_proof("ep01.mkv")
+    assert controller.running_proof_progress("ep01.mkv") is None      # nothing reported yet
+    proof = fake_runner.last("proof", "ep01.mkv")
+    fake_runner.progress(proof, 0.25, "Extracting dialogue")
+    controller.drain_events()
+    assert controller.running_proof_progress("ep01.mkv") == (0.25, "Extracting dialogue")
+    assert progress.calls == [("ep01.mkv",)]
+
+    fake_runner.progress(proof, 0.5, "Extracting dialogue")
+    controller.drain_events()
+    assert controller.running_proof_progress("ep01.mkv") == (0.5, "Extracting dialogue")
+    assert progress.calls == [("ep01.mkv",), ("ep01.mkv",)]
+
+    fake_runner.finish(proof, ProofResult("ep01.mkv", (300.0, 330.0), [], 1.0))
+    controller.drain_events()
+    assert controller.running_proof_progress("ep01.mkv") is None      # the result ends it
+    assert len(progress.calls) == 2
+
+
+def test_a_progress_event_after_the_result_is_ignored(make_controller, fake_runner, tmp_project):
+    """The runner drops events after a job's terminal one, so this arrives
+    through the controller's queue only when the job emitted it first -- which
+    is exactly the race the guard exists for."""
+    names = ["ep01.mkv"]
+    folder = tmp_project(names, config=v2_config(
+        [make_entry("ep01.mkv", crop=BOX, brightness=200, review=ReviewState.REVIEWED)],
+        autopilot_enabled=False))
+    controller = make_controller()
+    controller.open_folder(str(folder))
+    progress = Spy(controller.proof_progress)
+    controller.run_proof("ep01.mkv")
+    proof = fake_runner.last("proof", "ep01.mkv")
+    fake_runner.finish(proof, ProofResult("ep01.mkv", (300.0, 330.0), [], 1.0))
+    controller.drain_events()
+
+    controller._events.put(JobEvent("progress", "proof:ep01.mkv", "proof", "ep01.mkv",
+                                    job_id=proof.job_id, progress=0.9, message="Extracting dialogue"))
+    controller.drain_events()
+    assert controller.running_proof_progress("ep01.mkv") is None
+    assert progress.calls == []
+
+
+def test_cancel_proof_cancels_the_files_job_and_forgets_its_progress(make_controller, fake_runner,
+                                                                     tmp_project):
+    names = ["ep01.mkv", "ep02.mkv"]
+    folder = tmp_project(names, config=v2_config(
+        [make_entry(name, crop=BOX, brightness=200, review=ReviewState.REVIEWED) for name in names],
+        autopilot_enabled=False))
+    controller = make_controller()
+    controller.open_folder(str(folder))
+
+    controller.run_proof("ep01.mkv")
+    fake_runner.progress(fake_runner.last("proof", "ep01.mkv"), 0.4, "Extracting dialogue")
+    controller.drain_events()
+    assert controller.running_proof_progress("ep01.mkv") == (0.4, "Extracting dialogue")
+
+    controller.cancel_proof("ep01.mkv")
+    assert fake_runner.cancelled_keys == ["proof:ep01.mkv"]
+    assert controller.running_proof_progress("ep01.mkv") is None
+
+    controller.cancel_proof("ep02.mkv")                 # nothing running: still one request, no error
+    assert fake_runner.cancelled_keys == ["proof:ep01.mkv", "proof:ep02.mkv"]
+
+    fake_runner.finish(fake_runner.last("proof", "ep01.mkv"), None, event_type="cancelled")
+    controller.drain_events()
+    assert not controller.proof_pending("ep01.mkv")
+    assert controller.proof_result("ep01.mkv") is None
+
+
+def test_a_second_proof_of_the_same_file_starts_without_the_first_progress(make_controller, fake_runner,
+                                                                          tmp_project):
+    names = ["ep01.mkv"]
+    folder = tmp_project(names, config=v2_config(
+        [make_entry("ep01.mkv", crop=BOX, brightness=200, review=ReviewState.REVIEWED)],
+        autopilot_enabled=False))
+    controller = make_controller()
+    controller.open_folder(str(folder))
+    controller.run_proof("ep01.mkv")
+    fake_runner.progress(fake_runner.last("proof", "ep01.mkv"), 0.7, "Extracting dialogue")
+    controller.drain_events()
+    fake_runner.finish(fake_runner.last("proof", "ep01.mkv"),
+                       ProofResult("ep01.mkv", (300.0, 330.0), [], 1.0))
+    controller.drain_events()
+
+    controller.run_proof("ep01.mkv")
+    assert controller.running_proof_progress("ep01.mkv") is None
 
 
 # --------------------------------------------------------------------------
