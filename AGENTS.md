@@ -237,6 +237,7 @@ when the folder is absent.
 | `OCR_MANAGER_FFMPEG_DIR` | points the resolver at a different ffmpeg/ffprobe folder |
 | `OCR_MANAGER_BUNDLE` | a portable build's root; only honoured when `<root>/bundle.json` exists |
 | `OCR_MANAGER_CACHE_DIR` | episode cache root (tests set it per test) |
+| `OCR_MANAGER_HWACCEL` | `1`/`true`/`yes`/`on` tries `-hwaccel d3d11va`, verified per file against software decode before it is used; unset means software decode |
 | `OCR_MANAGER_LOG_LEVEL` | `debug` (default), `info`, `warning`, `error`, `critical` |
 | `OCR_MANAGER_UI_SCALE` | UI scale multiplier, clamped to 1.0–3.0 (default 1.25) |
 | `QT_QPA_PLATFORM` | set to `offscreen` for tests and CI |

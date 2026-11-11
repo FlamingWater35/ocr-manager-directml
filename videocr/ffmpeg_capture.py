@@ -97,6 +97,68 @@ _CHANNELS = 3
 # How long a frame's showinfo line may take to appear after its bytes.
 _PTS_WAIT_SECONDS = 30.0
 
+# The pipe buffer handed to Popen.  ``io.BufferedReader`` bypasses its buffer
+# entirely when ``read(n)`` asks for more than the buffer holds, reading the
+# bytes straight into the object it returns -- one allocation, no copy.  Ask
+# for LESS than the buffer and it first fills the buffer, then copies the
+# requested prefix out of it, which for a frame is a full extra frame copy per
+# frame that nobody asked for.
+#
+# This was measured, because the cost is not small: on a 3840x1640 10-bit HEVC
+# source decoding 2528x1080 frames (7.81 MB each), reading one frame per call
+# at bufsize=4 frames ran 24.3 fps; on the bypass path the same reads ran
+# 55-58 fps.  CPU time per frame moved the same way.  The old value was chosen
+# to "buffer a few frames" without measuring it, and it cost 2.3x the decode
+# throughput.
+#
+# The rule is "smaller than one frame", not "a particular number", so the value
+# has to be below the SMALLEST frame this app decodes -- otherwise the fix
+# works at 4K and silently does nothing at 320x240.  64 KB clears that with
+# room to spare (a 320x240 bgr24 frame is 225 KB) and measured the same as
+# 256 KB and 1 MB on the large-frame path (57.5 / 58.2 / 56.6 fps, i.e. within
+# noise), so there is nothing to gain from making it larger.
+_PIPE_BUFSIZE = 64 << 10
+
+# Hardware decode, and why it is decided per file rather than switched on.
+#
+# ``-hwaccel d3d11va`` decodes on the GPU.  Whether that is *safe* depends on
+# the source's bit depth, and the difference is not subtle:
+#
+#   * 10-bit sources (yuv420p10le, P010): pixel-identical to software decode.
+#     Measured on the 3840x1640 10-bit HEVC test clip (20 frames, three
+#     positions) and on 320x240 / 1280x720 / 1920x1080 yuv420p10le clips with
+#     both h264 and h265: ``np.array_equal`` on every frame, every time.
+#   * 8-bit sources (yuv420p, NV12): NOT identical.  d3d11va hands the chain
+#     NV12 where software hands it YUV420P, and NV12's chroma upsampling
+#     differs: on the same matrix, ~40% of pixels differed by up to 81/255.
+#
+# So this is not something to guess from a container field: the bit depth is
+# knowable (``pix_fmt``), but "is this particular driver's NV12 conversion
+# identical to libswscale's on this particular frame" is not.  A wrong guess
+# either loses a real speedup or silently changes every OCR input, so the
+# capture *measures* it: :meth:`FFmpegCapture._hardware_is_exact` decodes one
+# frame both ways and compares them byte for byte, once per file per process.
+#
+# What the speedup is worth, measured honestly (waiting for frame BYTES, not
+# for showinfo lines) on the 4K clip with the band crop:
+#   software 65.4 fps / 113 ms CPU per frame;  d3d11va 74.1 fps / 89 ms CPU.
+# That is ~13% wall and ~21% CPU on a decode-bound pass, which is worth having
+# but not worth breaking the goldens for.
+HARDWARE_ACCEL = "d3d11va"
+
+# Per-file verdicts: (path, mtime, size, chain) -> whether hardware is exact.
+# A file that changes is re-measured, so a replaced file is never trusted from
+# a stale verdict.
+_HARDWARE_EXACT: dict[tuple[str, int, int, str], bool] = {}
+_HARDWARE_EXACT_MAX = 32
+_HARDWARE_EXACT_LOCK = threading.Lock()
+
+# Off by default, opt in with OCR_MANAGER_HWACCEL=1.  A measurement of one
+# frame is evidence, not a proof, and the goldens are the contract: until a
+# release has run with this on for a while, software decode stays the default
+# so a surprising driver cannot change what the app reads.
+HWACCEL_ENV = "OCR_MANAGER_HWACCEL"
+
 # Filter chains already known to start on this file: (path, chain, hwaccel).
 # `_check_started()` waits on the pipe to catch a chain ffmpeg cannot build,
 # and that wait is per-capture; a scan opens a capture per probe, so without
@@ -292,26 +354,41 @@ def tone_map_filters(transfer: str | None) -> list[str]:
     return ["format=gbrpf32le", "tonemap=hable"]
 
 
+def _hwaccel_enabled() -> bool:
+    """Whether the operator asked for hardware decode (``OCR_MANAGER_HWACCEL``).
+
+    Read once per process.  Accepts the usual spellings so a launcher script
+    can say `true` or `yes` without this being a puzzle.
+    """
+    raw = (os.environ.get(HWACCEL_ENV) or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 class FFmpegCapture:
     """Decode a video through an ffmpeg subprocess pipe.
 
-    ``hardware_decode`` switches ffmpeg to ``-hwaccel d3d11va``.  It is off by
-    default because it is *not* pixel-identical to software decoding: the
-    hardware path hands the filter chain NV12 while the software path hands it
-    YUV420P, and the chroma upsampling differs (measured on a 640x360
-    testsrc2 frame: mean [125 126] against [125 129 124], and a different
-    plane checksum).  Callers that need reproducible pixels leave it alone.
+    ``hardware_decode`` switches ffmpeg to ``-hwaccel d3d11va``, but only after
+    proving on one frame of the actual file that the hardware path reproduces
+    the software path byte for byte (see ``HARDWARE_ACCEL``).  It is off unless
+    ``OCR_MANAGER_HWACCEL`` is set, because a driver-dependent change to the
+    decoded pixels is not something to adopt on faith: 10-bit sources measured
+    identical, 8-bit sources measured ~40% of pixels different.
     """
 
     _CROP_PAD = 8  # margin decoded around the crop, sliced off after conversion
 
-    def __init__(self, video_path, use_gpu=False, decode_target_height=None, crop_rect=None):
+    def __init__(self, video_path, use_gpu=None, decode_target_height=None, crop_rect=None):
         self.path = str(video_path)
-        self.use_gpu = use_gpu
+        # None means "follow OCR_MANAGER_HWACCEL", which is how every call site
+        # gets the speedup from one setting without each of them having to know
+        # about it.  True/False pin it for that capture, which the tests use.
+        self._use_gpu_requested = _hwaccel_enabled() if use_gpu is None else bool(use_gpu)
+        self.use_gpu = False             # decided in __enter__, see _resolve_hardware()
         self._decode_target_height = decode_target_height
         self._crop_request = crop_rect
         self._crop_slice = None          # (y0, y1, x0, x1) in output space
         self._crop_native = None         # (x, y, w, h) in native decode space
+        self._crop_tail = None           # (x, y, w, h) in output space, after the scale
         self._crop_scaled_size = None    # (w, h) the scale stage targets
         self._crop_graph_active = False
         self._read_started = False
@@ -372,11 +449,115 @@ class FFmpegCapture:
         self._parked.clear()
         self.seek_past_end = False
 
-        # Plan the crop, then start the pipe: the chain is fixed once ffmpeg
-        # runs.  configure_crop() before the first read() just restarts it.
+        # Plan the crop, then decide on hardware decode, then start the pipe:
+        # the chain is fixed once ffmpeg runs.  configure_crop() before the
+        # first read() just restarts it.
         self._plan_crop()
+        self.use_gpu = self._resolve_hardware()
         self._start_pipe(0.0)
         return self
+
+    def _resolve_hardware(self) -> bool:
+        """Whether this capture may decode on the GPU.
+
+        The answer is `no` unless the caller asked for it, this ffmpeg has the
+        decoder, and a measured frame proves the hardware path reproduces the
+        software path byte for byte on THIS file (see HARDWARE_ACCEL).  The
+        measurement is memoised per file, so the cost is one extra frame
+        decode the first time a file is opened and nothing afterwards.
+
+        Failure is never fatal: an ffmpeg without d3d11va, a machine with no
+        DX11 device, or a driver that disagrees with libswscale all land on the
+        same answer, software decode, which is what every measurement in this
+        codebase was taken with.
+        """
+        if not self._use_gpu_requested:
+            return False
+        if not _hwaccel_enabled():
+            logger.debug("%s: hardware decode not enabled (%s is not set); using software",
+                         self.path, HWACCEL_ENV)
+            return False
+        exact = self._hardware_is_exact()
+        if not exact:
+            logger.info("%s: hardware decode (%s) would change the decoded pixels; "
+                        "using software decode", self.path, HARDWARE_ACCEL)
+        return exact
+
+    def _hardware_is_exact(self) -> bool:
+        """Decode one frame both ways and compare the bytes.
+
+        Uses a *separate* ffmpeg invocation rather than this capture's own
+        pipe: the answer has to be known before the chain is started, because
+        `-hwaccel` is a decoder option fixed for the life of the process.
+
+        A frame is compared at the chain's own output geometry, so the verdict
+        covers the tone map, the crop and the scale as well as the decoder --
+        those are the stages that would turn a different decoder output into
+        different pixels.  Any failure (no hardware decoder, a chain that will
+        not start, a truncated read) answers False: "cannot prove it is
+        identical" and "it is not identical" both mean software decode.
+        """
+        chain = self._filter_chain()
+        try:
+            stat = os.stat(self.path)
+            key = (os.path.abspath(self.path), stat.st_mtime_ns, stat.st_size, chain)
+        except OSError:
+            key = None
+        if key is not None:
+            with _HARDWARE_EXACT_LOCK:
+                cached = _HARDWARE_EXACT.get(key)
+            if cached is not None:
+                return cached
+
+        frame_bytes = self._out_w() * self._out_h() * _CHANNELS
+        # Decode a frame a little into the file: frame 0 is often a black or
+        # key frame on both paths, which would prove nothing.  Clamp the seek
+        # against the file's own length so a clip shorter than a second (or one
+        # whose frame_count ffprobe could not read) still probes a real frame
+        # instead of seeking past the end and answering "not identical" for a
+        # file that hardware decode handles perfectly well.
+        start = max(self._info.start_time, 0.0)
+        seek = start + 1.0
+        if self._info.frame_count > 0 and self._info.fps > 0.0:
+            end = start + self._info.frame_count / self._info.fps
+            seek = min(seek, max(start, end - 0.5))
+        software = self._grab_one_frame(chain, frame_bytes, seek, hardware=False)
+        hardware = self._grab_one_frame(chain, frame_bytes, seek, hardware=True)
+        exact = software is not None and hardware is not None and software == hardware
+        logger.debug("%s: hardware decode check: software %s, hardware %s -> %s",
+                     self.path,
+                     "no frame" if software is None else f"{len(software)} B",
+                     "no frame" if hardware is None else f"{len(hardware)} B",
+                     "identical" if exact else "DIFFERENT")
+        if key is not None:
+            with _HARDWARE_EXACT_LOCK:
+                if len(_HARDWARE_EXACT) >= _HARDWARE_EXACT_MAX:
+                    _HARDWARE_EXACT.clear()
+                _HARDWARE_EXACT[key] = exact
+        return exact
+
+    def _grab_one_frame(self, chain: str, frame_bytes: int, seek: float,
+                        hardware: bool) -> bytes | None:
+        """One frame's bytes from a throwaway ffmpeg, or None on any failure."""
+        cmd = [ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-nostats",
+               "-nostdin", "-loglevel", "error"]
+        if hardware:
+            cmd += ["-hwaccel", HARDWARE_ACCEL]
+        cmd += ["-threads", str(decode_budget.stream_threads()), "-copyts"]
+        if seek > 0.0:
+            cmd += ["-ss", f"{seek:.6f}"]
+        cmd += ["-i", self.path, "-map", "0:v:0", "-vf", chain,
+                "-frames:v", "1", "-fps_mode", "passthrough", "-an", "-sn", "-dn",
+                "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=60,
+                                    **hidden_child())
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.debug("%s: hardware decode probe failed (%s)", self.path, exc)
+            return None
+        if result.returncode != 0 or len(result.stdout) < frame_bytes:
+            return None
+        return bytes(result.stdout[:frame_bytes])
 
     def configure_crop(self, crop_rect) -> None:
         """Bake ``crop_rect`` -- (x, y, w, h) in decode-output space -- into
@@ -399,6 +580,7 @@ class FFmpegCapture:
         # _plan_crop only ever *sets* these, so clear whatever an earlier call
         # left behind before planning again.
         self._crop_native = None
+        self._crop_tail = None
         self._crop_scaled_size = None
         self._crop_slice = None
         self._crop_graph_active = False
@@ -407,20 +589,34 @@ class FFmpegCapture:
             self._start_pipe(self._pipe_seek)
 
     def _plan_crop(self) -> None:
-        """Translate the requested output-space crop into a native-space,
-        aligned, padded decode box plus the exact slice to take afterwards.
+        """Translate the requested output-space crop into a filter chain that
+        yields exactly the bytes a Python slice of the full frame would.
 
-        The invariant: EITHER the crop is planned such that the chain's
-        crop+scale is ``np.array_equal`` to slicing the full-frame reference,
-        OR it is refused entirely (``_crop_slice`` stays None), leaving
-        videocr/video.py to slice the full frame in Python.  "Planned but only
-        approximately correct" must never happen.
+        The invariant: EITHER the crop is planned such that the chain's output
+        is ``np.array_equal`` to slicing the full-frame reference, OR it is
+        refused entirely (``_crop_slice`` stays None and no crop stage is
+        added), leaving videocr/video.py to slice the full frame in Python.
+        "Planned but only approximately correct" must never happen.
 
-        The two axes are planned independently because ``_output_height`` is
-        exactly the decode target but ``_output_width`` is ``int(width * sf)``
-        rounded up to even, so the two axes' native/output ratios are not
-        generally identical.  A padding margin absorbs swscale's filter taps
-        at the crop edges; it is sliced off after conversion.
+        Two plans are tried, cheapest first:
+
+        1. **Native crop before the scale** (`_crop_native`).  Cheapest when it
+           applies, because only the band is scaled.  It requires the
+           native/output ratio to be exact and even, which
+           :func:`_crop_axis_plan` only admits for a power-of-two denominator,
+           so it refuses 3840x1640 -> 1080 and most other real sources.
+
+        2. **Output-space crop after the scale** (`_crop_tail`).  Always exact,
+           because it crops the very frame video.py would have sliced: measured
+           ``np.array_equal`` on the 4K 10-bit clip, the 8-bit clip, an
+           unscaled source, an odd offset and an odd size.  Costs a full-frame
+           scale (the scale already happened before this change), so it is the
+           fallback rather than the first choice.
+
+        Both are much cheaper than the third option, which is what this method
+        used to fall back to: no crop stage at all, so the pipe carried the
+        whole 2528x1080 frame and Python threw 98% of it away.  On the 4K clip
+        that cost 58 fps against 105-112 fps with either plan.
         """
         if self._crop_request is None:
             return
@@ -432,10 +628,25 @@ class FFmpegCapture:
         w = max(1, min(w, out_w - x))
         h = max(1, min(h, out_h - y))
 
+        if self._plan_native_crop(x, y, w, h):
+            return
+        self._plan_tail_crop(x, y, w, h)
+
+    def _plan_native_crop(self, x: int, y: int, w: int, h: int) -> bool:
+        """Plan the crop in native space, before the scale.
+
+        Returns True when a plan was made.  The two axes are planned
+        independently because ``_output_height`` is exactly the decode target
+        but ``_output_width`` is ``int(width * sf)`` rounded up to even, so the
+        two axes' native/output ratios are not generally identical.  A padding
+        margin absorbs swscale's filter taps at the crop edges; it is sliced off
+        after conversion.
+        """
+        out_w, out_h = self._output_width, self._output_height
         plan_x = _crop_axis_plan(out_w, self._width)
         plan_y = _crop_axis_plan(out_h, self._height)
         if plan_x is None or plan_y is None:
-            return  # refuse; _crop_slice stays None
+            return False
         align_x, native_step_x, out_step_x = plan_x
         align_y, native_step_y, out_step_y = plan_y
 
@@ -461,7 +672,7 @@ class FFmpegCapture:
         n_w = n_x1 - n_x0
         n_h = n_y1 - n_y0
         if n_w <= 0 or n_h <= 0:
-            return
+            return False
 
         self._crop_native = (n_x0, n_y0, n_w, n_h)
         self._crop_scaled_size = (px1 - px0, py1 - py0)
@@ -471,15 +682,39 @@ class FFmpegCapture:
                      "scaled to %dx%d, slice %r",
                      self.path, w, h, x, y, n_w, n_h, n_x0, n_y0,
                      self._crop_scaled_size[0], self._crop_scaled_size[1], self._crop_slice)
+        return True
+
+    def _plan_tail_crop(self, x: int, y: int, w: int, h: int) -> bool:
+        """Plan the crop in output space, after the scale.
+
+        This is the frame video.py would slice, so the crop is exact by
+        construction and needs no alignment, padding or slice afterwards: the
+        pipe carries only the band.  ``_crop_slice`` therefore stays None, which
+        is what tells video.py not to slice again.
+        """
+        self._crop_tail = (x, y, w, h)
+        self._crop_scaled_size = None
+        self._crop_slice = None
+        self._crop_graph_active = True
+        logger.debug("%s: crop %dx%d at (%d,%d) in output space applied after the "
+                     "scale (the native plan was refused: the %dx%d -> %dx%d ratio is "
+                     "not exact)",
+                     self.path, w, h, x, y, self._width, self._height,
+                     self._output_width, self._output_height)
+        return True
 
     # -- geometry ----------------------------------------------------------
 
     def _out_w(self) -> int:
         """Width of one frame as it leaves the pipe."""
+        if self._crop_tail is not None:
+            return self._crop_tail[2]
         return self._crop_scaled_size[0] if self._crop_scaled_size else self._output_width
 
     def _out_h(self) -> int:
         """Height of one frame as it leaves the pipe."""
+        if self._crop_tail is not None:
+            return self._crop_tail[3]
         return self._crop_scaled_size[1] if self._crop_scaled_size else self._output_height
 
     def _frame_size(self) -> int:
@@ -489,7 +724,7 @@ class FFmpegCapture:
     # -- the pipe ----------------------------------------------------------
 
     def _filter_chain(self) -> str:
-        """The -vf chain: tone map, crop, bgr24, scale, showinfo.
+        """The -vf chain: tone map, crop, bgr24, scale, tail crop, showinfo.
 
         showinfo goes last so the PTS it prints belongs to the frame whose
         bytes are about to be written to the pipe.
@@ -503,6 +738,11 @@ class FFmpegCapture:
             parts.append(f"scale={self._crop_scaled_size[0]}:{self._crop_scaled_size[1]}")
         elif self._scale_factor < 1.0:
             parts.append(f"scale={self._output_width}:{self._output_height}")
+        if self._crop_tail is not None:
+            # After the scale, so this crops exactly the frame video.py would
+            # have sliced: no ratio to be exact about, no padding, no slice.
+            t_x, t_y, t_w, t_h = self._crop_tail
+            parts.append(f"crop={t_w}:{t_h}:{t_x}:{t_y}")
         parts.append("showinfo")
         return ",".join(parts)
 
@@ -516,7 +756,7 @@ class FFmpegCapture:
         seek_seconds = max(0.0, float(seek_seconds))
         cmd = [ffmpeg_tool.ffmpeg_path() or "ffmpeg", "-hide_banner", "-nostats", "-nostdin", "-loglevel", "info"]
         if self.use_gpu:
-            cmd += ["-hwaccel", "d3d11va"]
+            cmd += ["-hwaccel", HARDWARE_ACCEL]
         # Before -i, so it caps the DECODER; after -i it would only cap the
         # muxer, which measured no CPU change at all. ffmpeg's default is one
         # thread per core, which a 4K 10-bit stream turns into three cores busy
@@ -537,7 +777,7 @@ class FFmpegCapture:
                      self.path, seek_seconds, self.use_gpu, self._filter_chain())
         self._proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            bufsize=max(1, self._frame_size()) * 4,
+            bufsize=_PIPE_BUFSIZE,
             **hidden_child())
         self._pipe_seek = seek_seconds
         self._pts_queue.clear()

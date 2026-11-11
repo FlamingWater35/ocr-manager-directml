@@ -145,20 +145,29 @@ def test_configure_crop_called_after_enter_matches_slice(downscaled_clip):
 
 
 def test_reconfiguring_crop_clears_stale_state(downscaled_clip, monkeypatch):
-    """Re-configuring from an active crop to no crop, or to one
-    _plan_crop ends up refusing, must not leave the previous call's crop
-    state behind: a stale _crop_slice/_crop_graph_active would make
-    _frame_producer's `not getattr(v, '_crop_slice', None)` guard
-    (videocr/video.py) skip its own Python-level slice, believing the
-    graph already cropped when it did not -- OCRing the wrong region of
-    the frame.
+    """Re-configuring from an active crop to no crop, or from one crop plan to
+    another, must not leave the previous call's crop state behind: a stale
+    _crop_slice / _crop_native / _crop_tail would make the caller's
+    `_crop_graph_active` guard (videocr/video.py, core/detect/ocr_view.py)
+    skip its own Python-level slice while the chain was still producing a full
+    frame -- OCRing the wrong region.
+
+    The old version of this test asserted that a refused native plan meant
+    `not _crop_graph_active`. That is no longer the shape of the decision: a
+    refused native plan now falls back to a crop AFTER the scale, which is
+    exact by construction, so the capture still crops and still reports
+    `_crop_graph_active`. What has to stay true is that exactly one of the two
+    plans is recorded, and that the previous one is cleared.
     """
     import videocr.ffmpeg_capture as capture_mod
 
     with FFmpegCapture(str(downscaled_clip),
                      decode_target_height=_GRAPH_TARGET_HEIGHT,
                      crop_rect=_GRAPH_CROP) as cap:
+        # 640x480 -> 240 is an exact 2:1 ratio, so the cheap native plan wins.
         assert cap._crop_graph_active
+        assert cap._crop_native is not None
+        assert cap._crop_tail is None
         assert cap._crop_slice is not None
 
         # Re-configure to no crop at all.
@@ -166,31 +175,27 @@ def test_reconfiguring_crop_clears_stale_state(downscaled_clip, monkeypatch):
         assert cap._crop_request is None
         assert cap._crop_slice is None
         assert cap._crop_native is None
+        assert cap._crop_tail is None
         assert cap._crop_scaled_size is None
         assert not cap._crop_graph_active
 
-        # Back to an admitted crop, then to one _plan_crop refuses.
-        # _crop_axis_plan (see its own docstring) is a function of the
-        # capture's native/output *dimensions* alone, never of the crop
-        # rectangle -- so on one capture (fixed dimensions) a crop is
-        # either always admissible or always refused, and a real refused
-        # geometry can't be reached by changing only the crop rect on an
-        # already-admitting capture the way this test needs to. Forcing
-        # the refusal at its actual decision point exercises exactly the
-        # code path test_crop_invariant_holds_across_decode_ratios's own
-        # refused matrix entries take, without depending on hunting for a
-        # specific width/height/target combination that happens to
-        # refuse.
+        # Back to the admitted native crop.
         cap.configure_crop(_GRAPH_CROP)
         assert cap._crop_graph_active
+        assert cap._crop_native is not None
 
+        # Now refuse the native plan, which must switch to the tail plan and
+        # leave none of the native plan's state behind -- a stale _crop_native
+        # would put a crop stage in the chain that the tail plan does not
+        # expect, and a stale _crop_slice would make the caller slice twice.
         monkeypatch.setattr(capture_mod, "_crop_axis_plan", lambda *a, **k: None)
         cap.configure_crop(_GRAPH_CROP)
-        assert cap._crop_request == _GRAPH_CROP  # still recorded, just refused
-        assert cap._crop_slice is None
+        assert cap._crop_request == _GRAPH_CROP  # still recorded
         assert cap._crop_native is None
+        assert cap._crop_slice is None
         assert cap._crop_scaled_size is None
-        assert not cap._crop_graph_active
+        assert cap._crop_tail == _GRAPH_CROP
+        assert cap._crop_graph_active
 
 
 def test_crop_pts_unchanged(downscaled_clip):

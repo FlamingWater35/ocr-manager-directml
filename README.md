@@ -48,6 +48,14 @@
 
 ## ✨ About & Key Features
 
+> **This fork targets AMD and Intel GPUs first.** OCR runs on DirectML, which
+> is Microsoft's vendor-neutral DirectX 12 compute layer, so any DX12 adapter
+> can do the work — but AMD Radeon and Intel Arc / Iris Xe are the primary
+> targets here, not an afterthought. There is no CUDA dependency and no
+> `nvidia-smi` anywhere: one `onnxruntime-directml` wheel, one code path, the
+> same models on every vendor. NVIDIA cards are supported by the same path
+> (DirectML runs on them too); they are simply not what this fork is aimed at.
+
 OCR Manager reads hardcoded (burned-in) subtitles out of video and writes timed `.ass` files. It is built for **seasons**, not single files: open a folder of episodes and it detects each file's crop box, brightness threshold and intro/outro ranges on its own, then OCRs only the frames that carry text.
 
 - **Windows x64, self-contained**: PyQt6 desktop app with a bundled ffmpeg, bundled OCR engine and bundled PP-OCRv6 models. Nothing is installed on first run, and no CUDA toolkit, NVIDIA driver build or `nvidia-smi` is involved anywhere.
@@ -233,12 +241,30 @@ $env:OCR_MANAGER_DECODE_SLOTS   = "4"   # decoder threads available at once
 $env:OCR_MANAGER_DECODE_THREADS = "1"   # threads per one-shot grab
 ```
 
+### Hardware decode (opt-in)
+
+ffmpeg can decode on the GPU with `-hwaccel d3d11va`, which on a decode-bound pass measured **13% more frames per second and 21% less CPU** (74.1 fps / 89 ms CPU per frame against 65.4 fps / 113 ms on the 4K test clip). It is off by default and opt-in, because it is not always *identical*:
+
+| Source bit depth | d3d11va against software decode |
+| :--- | :--- |
+| 10-bit (`yuv420p10le`, P010) | Pixel-identical — 0 differing pixels across every frame tested |
+| 8-bit (`yuv420p`, NV12) | **Different** — ~40% of pixels, up to 81/255, from chroma upsampling |
+
+So the app does not assume either way. With the switch on, it decodes one frame of *that file* both ways, compares them byte for byte, and keeps hardware decode only if they match; otherwise that file is decoded in software. The verdict is cached per file.
+
+```powershell
+$env:OCR_MANAGER_HWACCEL = "1"   # try d3d11va, verified per file before use
+```
+
+Leave it unset if you care more about reproducibility than throughput: software decode is what every golden file and every measurement in this repository was taken with.
+
 ### Other tuning tips
 
 - **Opening a huge folder**: turn off *Run detections when a folder opens*. Files are then detected on demand when you open them.
 - **Parallel files**: 2–4 is usually right. Each parallel file is a full ffmpeg pipe plus an OCR session; past that they compete for the same GPU.
 - **iGPU instead of dGPU**: force Windows *Settings → System → Display → Graphics* to "High performance" for `ocr-manager.exe` (or your `python.exe` when running from source).
 - **Expected GPU usage**: 10–40% is normal. The pipeline bursts — CPU decodes and crops frames → GPU detects and recognises text → CPU merges lines.
+- **Decode throughput**: the pipe buffer and the crop stage are both chosen so ffmpeg does the least work possible per frame. Two measured wins, both of which used to be wasted: a crop is now applied *inside* ffmpeg for every source (it used to be refused whenever the downscale ratio was not a power of two, so a 4K file decoded, converted and piped the whole 2528×1080 frame and Python threw 98% of it away), and the pipe buffer is smaller than one frame so each frame is read straight into its array instead of being copied twice. Together they took a 30 s proof OCR from 176 s to 46 s on the 4K test clip, with byte-identical output.
 - **Watch the log**: `OCR_MANAGER_LOG_LEVEL=info` quietens it; it is `debug` by default because a decision that was never recorded cannot be recovered.
 
 ---

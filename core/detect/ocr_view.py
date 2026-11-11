@@ -296,7 +296,11 @@ def grab_ocr_strips_at(video_path: str, crop_box, times: list[float]) -> list[tu
             if not ok or frame is None:
                 logger.warning("%s: could not read a frame at t=%.3f", video_path, times[i])
                 continue
-            if not getattr(cap, "_crop_slice", None):
+            # _crop_graph_active, not _crop_slice: a crop applied after the
+            # scale leaves _crop_slice None while still having cropped (see
+            # FFmpegCapture._plan_tail_crop), and slicing again would take a
+            # corner out of the already-cropped band.
+            if not getattr(cap, "_crop_graph_active", False):
                 frame = frame[y0:y1, x0:x1]
             strip = np.ascontiguousarray(to_ocr_view(frame))
             results[i] = strip

@@ -914,9 +914,13 @@ class Video:
                     continue
 
                 # Apply crop (coordinates pre-scaled if decode downscaling is active).
-                # If the capture already cropped inside its filter graph
-                # (v._crop_slice is set), skip the redundant Python slice.
-                if not self.use_fullframe and not getattr(v, '_crop_slice', None):
+                # If the capture already cropped inside its filter graph, skip the
+                # redundant Python slice. The test is _crop_graph_active, not
+                # _crop_slice: a crop applied AFTER the scale needs no slice
+                # afterwards, so it leaves _crop_slice None while still having
+                # cropped -- and testing _crop_slice would then slice the band
+                # again, taking a corner out of an already-cropped frame.
+                if not self.use_fullframe and not getattr(v, '_crop_graph_active', False):
                     if crop_x_end is not None and crop_y_end is not None:
                         frame = frame[crop_y_start:crop_y_end, crop_x_start:crop_x_end]
                     else:
