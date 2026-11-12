@@ -15,13 +15,13 @@ while the review queue stays.
     - "{k} workers idle" -- text only, since the run already has every
       worker its parallel allows and there is nothing to raise to -- when it
       leaves worker slots unused while files wait (`idle_workers`, B13);
-    - otherwise "{q} files queued ·" with a ghost "Raise to {m}" button,
+    - otherwise "{q} files queued |" with a ghost "Raise to {m}" button,
       m = parallel + 2 capped at MAX_PARALLEL, while files wait and the
       folder is below that cap. This is the case that actually comes up,
       since the run job fills a free worker at once (B13 as amended). The
       button calls `update_folder(ocr_parallel=m)`, which reaches the
       running job (RunJob.set_parallel).
-- Right panel (300 px, scaled) "LIVE · {file}": the recognised lines of the
+- Right panel (300 px, scaled) "LIVE | {file}": the recognised lines of the
   followed file ("MM:SS text"), by default the most recently started file;
   "Follow ▾" picks another. Then the note that reviewing goes on meanwhile.
 
@@ -75,7 +75,7 @@ RAISE_TOOLTIP = ("Run up to {m} files at once. Files already running carry on; t
 MAX_PARALLEL = 8                            # the folder settings sheet's upper bound for "parallel files"
 PARALLEL_STEP = 2                           # how much "raise to" offers above the folder's parallel
 IDLE_HINT = "{count} {noun} idle"
-QUEUED_HINT = "{count} {noun} queued ·"
+QUEUED_HINT = "{count} {noun} queued |"
 RAISE_TEXT = "Raise to {m}"
 
 # A run row's Phase cell for a file that is not running: the state's own name,
@@ -501,7 +501,7 @@ class RunView(QWidget):
         footer.setContentsMargins(tokens.px(10), tokens.px(8), tokens.px(10), tokens.px(8))
         footer.setSpacing(tokens.px(6))
         self.gpu_label = QLabel()
-        self.gpu_separator = QLabel("·")
+        self.gpu_separator = QLabel("|")
         self.hint_label = QLabel()
         self.raise_button = Button(RAISE_TEXT.format(m=0), "ghost", small=True)
         self.raise_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
@@ -569,7 +569,7 @@ class RunView(QWidget):
         return [line.text() for line in self._feed_lines()]
 
     def hint_text(self) -> str:
-        """The footer's hint as one line ("3 files queued · Raise to 6", or
+        """The footer's hint as one line ("3 files queued | Raise to 6", or
         "2 workers idle" when there is no button); "" when there is none."""
         if self.hint_label.isHidden():
             return ""
@@ -702,7 +702,7 @@ class RunView(QWidget):
                 target = max(started)[2] if started else None
         else:
             self._pinned = None
-        self.live_title.set_full_text(f"{LIVE_TITLE} · {target}" if target else LIVE_TITLE)
+        self.live_title.set_full_text(f"{LIVE_TITLE} | {target}" if target else LIVE_TITLE)
         if target == self._followed:
             return
         self._followed = target

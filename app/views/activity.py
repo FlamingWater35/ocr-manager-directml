@@ -1,11 +1,11 @@
 """The activity strip (`.activity`, ui-spec §3.8): what the background is
 doing, instead of modal progress dialogs.
 
-- The current job: a blue dot, "{file} · {message}", a mini progress bar and
+- The current job: a blue dot, "{file} | {message}", a mini progress bar and
   its percent; "Idle" with a grey dot when nothing runs. Detection jobs report
   no progress fraction, so until a progress event arrives the bar is
   indeterminate (animated) and no percent is shown.
-- Trailing dim text: the latest finished jobs, "· {kind} done {n} s ago", up
+- Trailing dim text: the latest finished jobs, "| {kind} done {n} s ago", up
   to two, one per kind.
 - "Pause auto-pilot" / "Resume auto-pilot".
 """
@@ -24,7 +24,7 @@ AGO_REFRESH_MS = 1000
 IDLE_TEXT = "Idle"
 # What finished, as a noun phrase: "Audio analysis done 11 s ago". Each starts
 # with a capital, like every other piece of copy in the window -- it follows a
-# "·" separator, not a lowercase continuation of a sentence.
+# "|" separator, not a lowercase continuation of a sentence.
 DONE_LABELS = {
     "metadata": "Metadata",
     "thumbnail": "Thumbnail",
@@ -49,14 +49,14 @@ def ago_text(seconds: float) -> str:
 
 
 def recent_text(recent, now: float) -> str:
-    """"· Audio analysis done 11 s ago · Metadata done 12 s ago": the newest
+    """"| Audio analysis done 11 s ago | Metadata done 12 s ago": the newest
     finished job of each kind, newest first."""
     parts, kinds = [], set()
     for kind, _file, finished_at in recent:
         if kind in kinds:
             continue
         kinds.add(kind)
-        parts.append(f"· {DONE_LABELS.get(kind, kind)} done {ago_text(now - finished_at)}")
+        parts.append(f"| {DONE_LABELS.get(kind, kind)} done {ago_text(now - finished_at)}")
         if len(parts) == RECENT_SHOWN:
             break
     return " ".join(parts)
@@ -110,7 +110,7 @@ class ActivityStrip(QWidget):
         else:
             kind, file, fraction, message = current
             self.dot.set_tone("run")
-            self.text_label.set_full_text(f"{file} · {message}" if file else message)
+            self.text_label.set_full_text(f"{file} | {message}" if file else message)
             self.progress.show()
             if fraction is None:
                 self.progress.set_indeterminate(True)

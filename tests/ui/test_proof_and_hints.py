@@ -290,7 +290,7 @@ def test_a_finished_proof_shows_its_lines_the_count_and_a_show_all_link(window, 
     assert inspector.proof_status.isHidden()
     assert PROOF_LINES_SHOWN == 6
     assert inspector.proof_texts() == LINE_TEXTS[:PROOF_LINES_SHOWN]
-    assert inspector.proof_note.text() == "8 lines · took 4.1 s"
+    assert inspector.proof_note.text() == "8 lines | took 4.1 s"
     assert inspector.proof_note.property("tone") == ""
     assert not inspector.proof_show_all.isHidden()
     assert inspector.proof_show_all.text() == SHOW_ALL_TEXT
@@ -302,7 +302,7 @@ def test_a_finished_proof_shows_its_lines_the_count_and_a_show_all_link(window, 
     inspector.proof_button.click()                       # a new proof collapses the list again
     finish_proof(window, fake_runner, name, LINES[:2], seconds=2.0)
     assert inspector.proof_texts() == LINE_TEXTS[:2]
-    assert inspector.proof_note.text() == "2 lines · took 2.0 s"
+    assert inspector.proof_note.text() == "2 lines | took 2.0 s"
     assert inspector.proof_show_all.isHidden()
 
 
@@ -329,7 +329,7 @@ def test_a_proof_result_is_kept_per_file_for_the_session(window, fake_runner):
 
     queue.select(NAMES[0])
     assert inspector.proof_texts() == LINE_TEXTS[:3]
-    assert inspector.proof_note.text() == "3 lines · took 4.1 s"
+    assert inspector.proof_note.text() == "3 lines | took 4.1 s"
 
 
 def test_a_proof_of_a_file_whose_duration_is_unknown_says_so(make_window):
@@ -375,12 +375,12 @@ def test_progress_from_the_job_moves_the_bar_and_the_status_line(window, fake_ru
     fake_runner.progress(submission, 0.25, "Extracting dialogue")
     window.controller.drain_events()
     assert inspector.proof_bar.value() == pytest.approx(0.25)
-    assert inspector.proof_status.text() == f"{WINDOW_TEXT} · Extracting dialogue · 25%"
+    assert inspector.proof_status.text() == f"{WINDOW_TEXT} | Extracting dialogue | 25%"
 
     fake_runner.progress(submission, 0.8, "Extracting dialogue")
     window.controller.drain_events()
     assert inspector.proof_bar.value() == pytest.approx(0.8)
-    assert inspector.proof_status.text() == f"{WINDOW_TEXT} · Extracting dialogue · 80%"
+    assert inspector.proof_status.text() == f"{WINDOW_TEXT} | Extracting dialogue | 80%"
 
 
 def test_a_progress_report_for_another_file_leaves_this_one_alone(window, fake_runner):
@@ -486,10 +486,10 @@ def test_an_edit_makes_the_stored_proof_stale_and_keeps_its_lines(window, fake_r
     name = NAMES[0]
     inspector.proof_button.click()
     finish_proof(window, fake_runner, name, LINES[:3])
-    assert inspector.proof_note.text() == "3 lines · took 4.1 s"
+    assert inspector.proof_note.text() == "3 lines | took 4.1 s"
 
     controller.file_changed.emit(name)                   # evidence only: nothing the proof used changed
-    assert inspector.proof_note.text() == "3 lines · took 4.1 s"
+    assert inspector.proof_note.text() == "3 lines | took 4.1 s"
 
     if edit == "crop":
         controller.set_crop(name, (290, 780, 1340, 60))
@@ -504,7 +504,7 @@ def test_an_edit_makes_the_stored_proof_stale_and_keeps_its_lines(window, fake_r
 
     inspector.proof_button.click()                       # running again clears the mark
     finish_proof(window, fake_runner, name, LINES[:2], seconds=2.0)
-    assert inspector.proof_note.text() == "2 lines · took 2.0 s"
+    assert inspector.proof_note.text() == "2 lines | took 2.0 s"
 
 
 def test_another_files_edit_leaves_the_proof_alone(window, fake_runner):
@@ -512,7 +512,7 @@ def test_another_files_edit_leaves_the_proof_alone(window, fake_runner):
     inspector.proof_button.click()
     finish_proof(window, fake_runner, NAMES[0], LINES[:3])
     controller.set_brightness(NAMES[1], 214)
-    assert inspector.proof_note.text() == "3 lines · took 4.1 s"
+    assert inspector.proof_note.text() == "3 lines | took 4.1 s"
 
 
 def test_an_edit_while_the_proof_runs_marks_its_result_stale(window, fake_runner):

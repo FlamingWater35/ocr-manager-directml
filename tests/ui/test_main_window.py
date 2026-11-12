@@ -250,7 +250,7 @@ def test_window_shows_counts_start_and_fixed_columns(slay_window):
     # full_text(), not text(): the label elides to its width, and how many
     # characters survive depends on the font the platform resolved. What the
     # window shows is the whole path, elided or not.
-    assert top.path_label.full_text() == f"· {folder}"
+    assert top.path_label.full_text() == f"| {folder}"
     assert window.windowTitle() == f"OCR Manager — {os.path.basename(folder)}"
     # The tokens, never the numbers: the rail and the inspector are the
     # mockup's 246 and 322 px at the current UI scale, and a literal put back
@@ -637,9 +637,9 @@ def test_placeholder_tabs_follow_the_selected_file(qapp, controller, make_window
     crop_tab = window.stage.tabs()[0]
     window.queue.select(SLAY_NAMES[1])
     assert crop_tab.current_file() == SLAY_NAMES[1]
-    assert crop_tab.values() == ["288, 784 · 1344 × 55", "imported"]
+    assert crop_tab.values() == ["288, 784 | 1344 × 55", "imported"]
     window.controller.set_crop(SLAY_NAMES[1], (300, 790, 1300, 50))
-    assert crop_tab.values() == ["300, 790 · 1300 × 50", "manual"]
+    assert crop_tab.values() == ["300, 790 | 1300 × 50", "manual"]
     assert isinstance(crop_tab, StageTab)
 
 
@@ -673,8 +673,8 @@ def test_selecting_a_file_updates_the_inspector_header_and_detected_rows(slay_wi
     window.queue.select(SLAY_NAMES[1])
     assert inspector.scope_label.text() == "◆ THIS EPISODE ONLY"
     assert inspector.file_label.full_text() == SLAY_NAMES[1]
-    assert inspector.media_label.text() == "1920×888 · 27:08"            # fps unknown: omitted
-    assert inspector.crop_row.value() == "288, 784 · 1344 × 55"
+    assert inspector.media_label.text() == "1920×888 | 27:08"            # fps unknown: omitted
+    assert inspector.crop_row.value() == "288, 784 | 1344 × 55"
     assert inspector.crop_conf.caption() == "Imported from the previous version"
     assert inspector.brightness_row.value() == "209"
     assert inspector.window_row.value() == "2:33 → 23:05"
@@ -689,7 +689,7 @@ def test_selecting_a_file_updates_the_inspector_header_and_detected_rows(slay_wi
 def test_inspector_detected_rows_show_flagged_values_in_warn(mixed_window):
     inspector = mixed_window.inspector
     mixed_window.queue.select("b.mkv")
-    assert inspector.media_label.text() == "1920×888 · 27:08 · 25 fps"
+    assert inspector.media_label.text() == "1920×888 | 27:08 | 25 fps"
     assert inspector.crop_row.value_tone() == "warn"
     assert (inspector.crop_conf.caption(), inspector.crop_conf.property("tone")) == ("1 of 3 samples agree", "warn")
     assert inspector.brightness_row.value_tone() == ""
@@ -771,7 +771,7 @@ def test_proof_section_shows_running_then_lines(slay_window, fake_runner):
     assert inspector.proof_status.isHidden()
     assert inspector.proof_texts() == [
         "09:38 你竟掌握了鲲鹏道法", "09:41 我早已不是当年的我", "09:44 今日便让你见识见识", "09:48 纵使千难万险"]
-    assert inspector.proof_note.text() == "4 lines · took 4.1 s"
+    assert inspector.proof_note.text() == "4 lines | took 4.1 s"
 
 
 def test_t_is_not_offered_before_the_file_has_been_scanned(make_window, tmp_project, fake_runner):
@@ -810,13 +810,13 @@ def test_activity_strip_follows_running_events(slay_window, fake_runner):
     fake_runner.start(audio)
     controller.drain_events()
     assert strip.dot.property("tone") == "run"
-    assert strip.text_label.text() == f"{name} · Audio analysis"
+    assert strip.text_label.text() == f"{name} | Audio analysis"
     assert not strip.progress.isHidden() and strip.progress.is_indeterminate()
     assert strip.percent_label.isHidden()
 
     fake_runner.progress(audio, 0.62, "reading audio")
     controller.drain_events()
-    assert strip.text_label.text() == f"{name} · reading audio"
+    assert strip.text_label.text() == f"{name} | reading audio"
     assert not strip.progress.is_indeterminate()
     assert strip.percent_label.text() == "62%"
 
@@ -824,7 +824,7 @@ def test_activity_strip_follows_running_events(slay_window, fake_runner):
     controller.drain_events()
     assert strip.text_label.text() == "Idle"
     assert strip.dot.property("tone") == "idle"
-    assert strip.recent_label.text() == "· Audio analysis done 0 s ago"
+    assert strip.recent_label.text() == "| Audio analysis done 0 s ago"
 
 
 def test_pause_autopilot_toggles(slay_window):
@@ -1400,7 +1400,7 @@ def test_queue_hint_wraps_instead_of_clipping(slay_window):
     assert hint.wordWrap()
     document = QTextDocument()
     document.setHtml(hint.text())
-    assert document.toPlainText().replace("\xa0", " ") == "↑ ↓ move · Space mark reviewed · T test OCR"
+    assert document.toPlainText().replace("\xa0", " ") == "↑ ↓ move | Space mark reviewed | T test OCR"
     hint.parentWidget().show()
     assert wait_for(lambda: hint.height() >= hint.heightForWidth(hint.width()) > 0)
     hint.parentWidget().hide()
@@ -1431,7 +1431,7 @@ def test_long_file_names_do_not_widen_the_activity_strip(make_window, tmp_projec
     window.controller.drain_events()
     settle()
     strip = window.activity_strip
-    assert strip.text_label.full_text() == f"{name} · Metadata"
+    assert strip.text_label.full_text() == f"{name} | Metadata"
     assert strip.minimumSizeHint().width() < 400
     fake_runner.finish(submission, None)
     window.controller.drain_events()

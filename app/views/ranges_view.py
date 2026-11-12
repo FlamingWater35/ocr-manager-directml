@@ -293,7 +293,7 @@ def entry_of(controller, name: str | None):
 
 
 def header_text(name: str, duration: float, others) -> str:
-    """"ep01.mkv · 27:08 · other episodes 23:38 – 27:08" (ui-spec §3.3): the
+    """"ep01.mkv | 27:08 | other episodes 23:38 – 27:08" (ui-spec §3.3): the
     stage head's dim line for this tab, spaced around the dash as
     `tabs-hifi` renders it. Parts nothing is known about are left out rather
     than shown as "—"."""
@@ -304,7 +304,7 @@ def header_text(name: str, duration: float, others) -> str:
     if known:
         low, high = format_duration(known[0]), format_duration(known[-1])
         parts.append(f"Other episodes {low}" if low == high else f"Other episodes {low} – {high}")
-    return " · ".join(parts)
+    return " | ".join(parts)
 
 
 # --------------------------------------------------------------------------
@@ -314,8 +314,8 @@ def header_text(name: str, duration: float, others) -> str:
 @dataclass(frozen=True)
 class Span:
     """One block on the track: a keep range or one of the gaps between
-    them. `label` is what the block is titled with ("KEEP · 2:33–23:05",
-    "OUTRO · 23:05–27:08") and `detail` its second line -- the OCR length
+    them. `label` is what the block is titled with ("KEEP | 2:33–23:05",
+    "OUTRO | 23:05–27:08") and `detail` its second line -- the OCR length
     for a keep, how many episodes agreed for a matched skip."""
 
     start: float
@@ -476,7 +476,7 @@ class Timeline(QWidget):
             block = self._block_for(start, end)
             kind = str(block.get("kind", "")) if block else ""
             spans.append(Span(start, end, False,
-                              f"{(kind or SKIP_LABEL).upper()} · {_span_times(start, end)}",
+                              f"{(kind or SKIP_LABEL).upper()} | {_span_times(start, end)}",
                               _block_detail(block), kind))
         return sorted(spans, key=lambda span: span.start)
 
@@ -650,7 +650,7 @@ class Timeline(QWidget):
             return 0.0
 
     def _keep_label(self, start: float, end: float) -> str:
-        return f"KEEP · {_span_times(start, end)}"
+        return f"KEEP | {_span_times(start, end)}"
 
     def _block_for(self, start: float, end: float) -> dict | None:
         """The detected block a skip span overlaps most -- the one that
@@ -767,7 +767,7 @@ class Timeline(QWidget):
     def _paint_label(self, painter: QPainter, block: QRectF, span: Span, colour: str) -> None:
         """The block's title, and its second line. Compact mode shows the
         kind alone (ruling B5: "no labels except kind abbreviations")."""
-        text = span.label if self.editable else ("" if span.keep else span.label.split(" · ")[0])
+        text = span.label if self.editable else ("" if span.keep else span.label.split(" | ")[0])
         if not text:
             return
         painter.setFont(_font(tokens.FONT_SIZE_XS))
@@ -896,7 +896,7 @@ def _block_span(block) -> tuple[float, float] | None:
 
 
 def _block_detail(block: dict | None) -> str:
-    """"matches 4 episodes · 98%": how many OTHER episodes carried the same
+    """"matches 4 episodes | 98%": how many OTHER episodes carried the same
     segment (`matched_files` counts this one too) and how well it matched."""
     if not block:
         return ""
@@ -905,7 +905,7 @@ def _block_detail(block: dict | None) -> str:
         score = round(float(block["score"]) * 100)
     except (KeyError, TypeError, ValueError):
         return ""
-    return f"Matches {others} episodes · {score}%"
+    return f"Matches {others} episodes | {score}%"
 
 
 # --------------------------------------------------------------------------
@@ -1088,7 +1088,7 @@ class RangesTab:
         return self.panel
 
     def toolbar(self) -> QWidget:
-        """"{name} · {duration} · other episodes {min} – {max}" (ui-spec §3.3),
+        """"{name} | {duration} | other episodes {min} – {max}" (ui-spec §3.3),
         which the Stage mounts in the stage head."""
         return self._toolbar
 

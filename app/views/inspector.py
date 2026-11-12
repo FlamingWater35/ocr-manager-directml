@@ -6,7 +6,7 @@ bottom:
 1. header -- "◆ THIS EPISODE ONLY", the file name, its media line;
 2. the active stage tab's `inspector_panel()`, swapped on `tab_changed`;
 3. "DETECTED" -- crop, brightness and OCR window with confidence bars;
-4. "PROOF · REAL OCR OF 30 S" (ruling C4);
+4. "PROOF | REAL OCR OF 30 S" (ruling C4);
 5. "IF YOU CHANGE SOMETHING HERE" -- after a manual crop or brightness edit
    in this session, the offer to re-detect the other files with it as a
    hint (`controller.hint_targets` counts them, ruling C3);

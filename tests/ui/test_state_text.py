@@ -378,8 +378,8 @@ def test_crop_caption_no_evidence_no_source_falls_back():
 @pytest.mark.parametrize("caption", ["crop_caption", "brightness_caption", "ranges_caption"])
 @pytest.mark.parametrize("source, expected", [
     (None, ("Not detected yet", 0.0, "default")),
-    (Source.DETECTED, ("Detected earlier · no evidence kept", 0.0, "default")),
-    (Source.HINT, ("Detected earlier · no evidence kept", 0.0, "default")),
+    (Source.DETECTED, ("Detected earlier | no evidence kept", 0.0, "default")),
+    (Source.HINT, ("Detected earlier | no evidence kept", 0.0, "default")),
 ])
 def test_a_detected_value_with_no_evidence_does_not_read_as_undetected(caption, source, expected):
     """Evidence lives in the disposable .ocr-cache/, so a perfectly good
@@ -394,7 +394,7 @@ def test_a_flagged_detected_value_with_no_evidence_still_warns(caption):
     """entry.flags lives in .ocr.json, so the doubt survives the wipe even
     though the reading behind it does not."""
     assert getattr(state_text, caption)(None, Source.DETECTED, blocking=True) == (
-        "Detected earlier · no evidence kept", 0.0, "warn")
+        "Detected earlier | no evidence kept", 0.0, "warn")
 
 
 def test_crop_caption_evidence_informational_flag_is_ok():
@@ -686,7 +686,7 @@ def test_state_text_module_imports_no_qt():
 def test_crop_and_brightness_texts():
     from app.state_text import brightness_text, crop_text
 
-    assert crop_text(Crop(288, 784, 1344, 55, Source.IMPORTED)) == "288, 784 · 1344 × 55"
+    assert crop_text(Crop(288, 784, 1344, 55, Source.IMPORTED)) == "288, 784 | 1344 × 55"
     assert crop_text(None) == "—"
     assert brightness_text(Brightness(211, Source.DETECTED)) == "211"
     assert brightness_text(None) == "—"
@@ -711,9 +711,9 @@ def test_ranges_text(ranges, expected):
 
 
 @pytest.mark.parametrize("media, expected", [
-    (Media(1920, 888, 1628.0, 25.0), "1920×888 · 27:08 · 25 fps"),
-    (Media(1920, 1080, 1418.0, 23.976), "1920×1080 · 23:38 · 23.976 fps"),
-    (Media(1920, 888, 1628.0, 0.0), "1920×888 · 27:08"),
+    (Media(1920, 888, 1628.0, 25.0), "1920×888 | 27:08 | 25 fps"),
+    (Media(1920, 1080, 1418.0, 23.976), "1920×1080 | 23:38 | 23.976 fps"),
+    (Media(1920, 888, 1628.0, 0.0), "1920×888 | 27:08"),
     (Media(0, 0, 0.0, 0.0), ""),
     (Media(0, 0, 3725.0, 0.0), "1:02:05"),
 ])

@@ -426,6 +426,17 @@ QPushButton#StageTab[on="true"] {{
     border: 1px solid {tokens.LINE2};
     border-bottom-color: {tokens.PANEL2};
 }}
+/* The selected tab is the one that usually has the focus, so the plain
+   `:focus` ring above is not enough: `[on="true"]` is later in the sheet and
+   wins the border, leaving a focused-and-selected tab looking exactly like a
+   selected one -- the ring was invisible in the very state a keyboard user
+   spends most of their time in. This rule outranks both (an attribute plus a
+   pseudo-class on an ID selector), and keeps the fill so the tab still reads
+   as the selected one. */
+QPushButton#StageTab[on="true"]:focus {{
+    border: 1px solid {tokens.ACC};
+    border-bottom-color: {tokens.PANEL2};
+}}
 
 /* -- Inspector (.insp-head / .sec / .note / .ocrline / .footer) -------- */
 QWidget#InspectorSection {{
@@ -435,6 +446,13 @@ QWidget#InspectorSection {{
 QWidget#InspectorFooter {{
     background-color: {tokens.PANEL};
     border-top: 1px solid {tokens.LINE};
+}}
+/* The proof's running row. Without this it is a bare QWidget, so the
+   universal `QWidget {{ background-color: BG }}` above paints it in the
+   window's darkest colour and the bar reads as sitting in a black box cut
+   out of the section's PANEL. Transparent lets the section show through. */
+QWidget#ProofProgressRow {{
+    background: transparent;
 }}
 QLabel#InspectorScope {{
     color: {tokens.ACC};

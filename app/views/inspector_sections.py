@@ -4,9 +4,9 @@
 - `DetectedSection`: "DETECTED" -- Crop, Brightness and OCR window rows with
   confidence bars (`state_text` captions); a click on a row asks for its tab.
   Its note carries the series-median brightness sentence.
-- `ProofSection`: "PROOF · REAL OCR OF 30 S" (ruling C4) -- "running on
+- `ProofSection`: "PROOF | REAL OCR OF 30 S" (ruling C4) -- "running on
   MM:SS-MM:SS…" while the proof runs, then up to PROOF_LINES_SHOWN "MM:SS
-  text" lines ("Show all" reveals the rest), and "{n} lines · took {s} s".
+  text" lines ("Show all" reveals the rest), and "{n} lines | took {s} s".
   A result whose settings have since changed keeps its lines and says so.
 - `ChangeOffer`: "IF YOU CHANGE SOMETHING HERE" -- the hint re-detect offer
   (ruling C3), one button per kind the user edited in this session.
@@ -255,7 +255,7 @@ class _OcrLine(QWidget):
 
 
 class ProofSection(Section):
-    """"Proof · real OCR of 30 s" (ruling C4). Four presentations, each set by
+    """"Proof | real OCR of 30 s" (ruling C4). Four presentations, each set by
     the Inspector from the controller's proof state: nothing yet, running,
     a result (fresh or stale), and a refusal ("Can't run yet: ...").
 
@@ -280,7 +280,7 @@ class ProofSection(Section):
         super().__init__(parent)
         self.run_button = small_button("T run")
         self.run_button.clicked.connect(self.run_requested)
-        self.body.addWidget(SectionHeader("Proof · real OCR of 30 s", trailing=self.run_button))
+        self.body.addWidget(SectionHeader("Proof | real OCR of 30 s", trailing=self.run_button))
         self.body.addSpacing(tokens.px(8))
         self.status_label = note_label(RUNNING_UNKNOWN_TEXT)
         self.body.addWidget(self.status_label)
@@ -295,6 +295,7 @@ class ProofSection(Section):
         self._pulse.setLoopCount(-1)
         # The running row: the bar takes the width, Cancel sits beside it.
         self.progress_row = QWidget()
+        self.progress_row.setObjectName("ProofProgressRow")
         progress_layout = QHBoxLayout(self.progress_row)
         progress_layout.setContentsMargins(0, tokens.px(6), 0, 0)
         progress_layout.setSpacing(tokens.px(8))
@@ -375,7 +376,7 @@ class ProofSection(Section):
         window = self._window_text
         percent = round(max(0.0, min(1.0, fraction)) * 100)
         parts = [part for part in (window, phase, f"{percent}%") if part]
-        self.status_label.setText(" · ".join(parts) if parts else RUNNING_UNKNOWN_TEXT)
+        self.status_label.setText(" | ".join(parts) if parts else RUNNING_UNKNOWN_TEXT)
 
     def show_result(self, result, *, stale: bool = False) -> None:
         """`stale`: the file's crop, brightness or time ranges changed since
@@ -394,7 +395,7 @@ class ProofSection(Section):
             self._set_note(NO_LINES_TEXT, "warn")
         else:
             count = len(result.lines)
-            self._set_note(f"{count} {'line' if count == 1 else 'lines'} · took {result.seconds:.1f} s")
+            self._set_note(f"{count} {'line' if count == 1 else 'lines'} | took {result.seconds:.1f} s")
 
     def show_error(self, message: str) -> None:
         """The proof could not be asked for at all (an unknown duration)."""

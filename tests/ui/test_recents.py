@@ -99,9 +99,9 @@ def test_time_ago(seconds, text):
 
 def test_the_detail_counts_a_folders_episodes_and_says_when():
     now = 1_000_000.0
-    assert recents.detail(folder("/a", now - 7200, 12), now) == "12 episodes · 2 h ago"
-    assert recents.detail(folder("/a", now, 1), now) == "1 episode · Just now"
-    assert recents.detail(folder("/a", now, 0), now) == "No episodes · Just now"
+    assert recents.detail(folder("/a", now - 7200, 12), now) == "12 episodes | 2 h ago"
+    assert recents.detail(folder("/a", now, 1), now) == "1 episode | Just now"
+    assert recents.detail(folder("/a", now, 0), now) == "No episodes | Just now"
     assert recents.detail(folder("/a", now, None), now) == "Just now"
     assert recents.detail(RecentEntry("/a/x.mkv", EPISODE, now - DAY), now) == "Yesterday"
 

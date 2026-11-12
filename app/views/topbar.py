@@ -19,7 +19,7 @@ chips, and Folder settings / Logs / Start.
   read-only and reachable at any time.
 
 In episode mode (`controller.is_episode`, docs spec 2026-09-28) the bar is
-the one file's: its name and "· folder", "⚙ Settings" and "▶ Start OCR"
+the one file's: its name and "| folder", "⚙ Settings" and "▶ Start OCR"
 (enabled exactly when the file is startable, done included -- the window
 asks before replacing its output), no chips, and the switch reads
 "Review · Working". Pause, stop and Logs are as above.
@@ -69,7 +69,7 @@ def rerun_text(count: int) -> str:
 
 
 class _ProjectBlock(QWidget):
-    """Project name + "· path"; clicking it opens another folder."""
+    """Project name + "| path"; clicking it opens another folder."""
 
     clicked = pyqtSignal()
 
@@ -228,7 +228,7 @@ class TopBar(QWidget):
             for button in (self.pause_button, self.stop_button):
                 button.setEnabled(not snapshot.stopping)
             return
-        self.path_label.set_full_text(f"· {project.path}")
+        self.path_label.set_full_text(f"| {project.path}")
         folder = project.folder
         extracts = folder.dialogue_enabled or folder.labels_enabled
         if episode is not None:

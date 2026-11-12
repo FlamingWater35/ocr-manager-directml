@@ -387,7 +387,7 @@ def test_top_bar_status_text_follows_the_run(window, fake_runner, monkeypatch):
     deliver(window)
     clock[0] = 1042.0
     window.topbar.refresh()
-    assert window.topbar.path_label.full_text() == "· Running · 0 of 5 done · 0:42 elapsed"   # no ETA yet
+    assert window.topbar.path_label.full_text() == "| Running | 0 of 5 done | 0:42 elapsed"   # no ETA yet
 
     clock[0] = 1100.0
     fake_runner.emit(run, "run_file_finished", file="ep01.mkv", result={"ok": True, "lines": 3, "error": ""})
@@ -395,11 +395,11 @@ def test_top_bar_status_text_follows_the_run(window, fake_runner, monkeypatch):
     clock[0] = 1862.0
     window.topbar.refresh()
     # average 100 s x 4 remaining / 1 active worker = 400 s
-    assert window.topbar.path_label.full_text() == "· Running · 1 of 5 done · 14:22 elapsed · ~7 min left"
+    assert window.topbar.path_label.full_text() == "| Running | 1 of 5 done | 14:22 elapsed | ~7 min left"
 
     window.topbar.pause_button.click()
     settle()
-    assert window.topbar.path_label.full_text().startswith("· Paused · 1 of 5 done")
+    assert window.topbar.path_label.full_text().startswith("| Paused | 1 of 5 done")
 
 
 def test_eta_is_average_finished_time_times_remaining_over_active_workers():
@@ -410,14 +410,14 @@ def test_eta_is_average_finished_time_times_remaining_over_active_workers():
             RunFileRow("e", QUEUED))
     snapshot = RunSnapshot(rows, started_at=0.0, parallel=2)
     assert eta_seconds(snapshot) == pytest.approx(150.0 * 3 / 2)
-    assert run_status_text(snapshot, 842.0) == "· Running · 1 of 5 done · 14:02 elapsed · ~4 min left"
+    assert run_status_text(snapshot, 842.0) == "| Running | 1 of 5 done | 14:02 elapsed | ~4 min left"
 
     one_running = RunSnapshot(rows[:3] + (RunFileRow("d", QUEUED), rows[4]), started_at=0.0, parallel=2)
     assert eta_seconds(one_running) == pytest.approx(150.0 * 3 / 1)
     none_running = RunSnapshot(rows[:2] + (RunFileRow("c"), RunFileRow("d"), RunFileRow("e")), started_at=0.0,
                                parallel=2, paused=True)
     assert eta_seconds(none_running) == pytest.approx(150.0 * 3)           # at least one worker
-    assert run_status_text(none_running, 3725.0) == "· Paused · 1 of 5 done · 1:02:05 elapsed · ~8 min left"
+    assert run_status_text(none_running, 3725.0) == "| Paused | 1 of 5 done | 1:02:05 elapsed | ~8 min left"
 
     cancelled_only = RunSnapshot((RunFileRow("a", CANCELLED, started_at=0.0, finished_at=10.0), RunFileRow("b")),
                                  started_at=0.0, parallel=1)
@@ -426,9 +426,9 @@ def test_eta_is_average_finished_time_times_remaining_over_active_workers():
     assert eta_seconds(RunSnapshot(rows[:2], started_at=0.0, parallel=2)) is None     # nothing left
     short = RunSnapshot((RunFileRow("a", DONE, started_at=0.0, finished_at=20.0), RunFileRow("b", RUNNING)),
                         started_at=0.0, parallel=1, stopping=True)
-    assert run_status_text(short, 30.0) == "· Stopping · 1 of 2 done · 0:30 elapsed"        # no ETA when stopping
+    assert run_status_text(short, 30.0) == "| Stopping | 1 of 2 done | 0:30 elapsed"        # no ETA when stopping
     assert run_status_text(RunSnapshot(short.files, started_at=0.0, parallel=1), 30.0) == \
-        "· Running · 1 of 2 done · 0:30 elapsed · ~20 s left"
+        "| Running | 1 of 2 done | 0:30 elapsed | ~20 s left"
 
 
 def test_pause_resume_and_stop_buttons_call_the_controller(window, fake_runner):
@@ -450,7 +450,7 @@ def test_pause_resume_and_stop_buttons_call_the_controller(window, fake_runner):
     settle()
     assert stopped.calls == [((), {})] and fake_runner.cancelled_keys == ["run"]
     assert not top.stop_button.isEnabled() and not top.pause_button.isEnabled()
-    assert top.path_label.full_text().startswith("· Stopping ·")
+    assert top.path_label.full_text().startswith("| Stopping |")
 
 
 # --------------------------------------------------------------------------
@@ -529,7 +529,7 @@ def test_the_live_feed_follows_the_newest_file_and_the_menu_switches(window, fak
     fake_runner.emit(run, "run_subtitle", file="ep01.mkv", result=(581.0, 583.0, "我早已不是当年的我"))
     deliver(window)
     assert view.followed() == "ep01.mkv"
-    assert view.live_title.full_text() == "LIVE · ep01.mkv"
+    assert view.live_title.full_text() == "LIVE | ep01.mkv"
     assert view.feed_lines() == ["09:38 你竟掌握了鲲鹏道法", "09:41 我早已不是当年的我"]
 
     fake_runner.emit(run, "run_file_started", file="ep02.mkv")
@@ -545,7 +545,7 @@ def test_the_live_feed_follows_the_newest_file_and_the_menu_switches(window, fak
     assert actions["Newest file"].isChecked()
     actions["ep01.mkv"].trigger()
     settle()
-    assert view.followed() == "ep01.mkv" and view.live_title.full_text() == "LIVE · ep01.mkv"
+    assert view.followed() == "ep01.mkv" and view.live_title.full_text() == "LIVE | ep01.mkv"
     assert view.feed_lines() == ["09:38 你竟掌握了鲲鹏道法", "09:41 我早已不是当年的我", "09:44 纵使千难万险"]
 
     fake_runner.emit(run, "run_file_started", file="ep03.mkv")
@@ -603,9 +603,9 @@ def test_queued_files_offer_a_higher_parallel_that_reaches_the_run_job(make_wind
     fake_runner.emit(run, "run_file_started", file="ep02.mkv")
     deliver(window)
 
-    assert view.hint_label.text() == "3 files queued ·"
+    assert view.hint_label.text() == "3 files queued |"
     assert view.raise_button.text() == "Raise to 4"
-    assert view.hint_text() == "3 files queued · Raise to 4"
+    assert view.hint_text() == "3 files queued | Raise to 4"
     assert "not started yet" in view.raise_button.toolTip()
     updates = Recorder(controller, "update_folder")
     view.raise_button.click()
@@ -621,7 +621,7 @@ def test_queued_files_offer_a_higher_parallel_that_reaches_the_run_job(make_wind
     fake_runner.emit(run, "run_file_started", file="ep03.mkv")
     fake_runner.emit(run, "run_file_started", file="ep04.mkv")
     deliver(window)
-    assert view.hint_text() == "1 file queued · Raise to 6"     # singular, and two above the folder's 4
+    assert view.hint_text() == "1 file queued | Raise to 6"     # singular, and two above the folder's 4
 
 
 def test_no_queued_hint_at_the_parallel_cap(make_window, tmp_project, fake_runner):

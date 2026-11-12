@@ -377,7 +377,7 @@ def test_default_values_are_shown(window):
     assert shown(sheet, "bottom_half_cutoff") == 55
     assert shown(sheet, "min_segment_length") == 30.0
     assert sheet.editor("brightness_full_detect_files").text() == "3 files"
-    assert sheet.mask_label.text() == "0 drawn · draw on the Crop tab"
+    assert sheet.mask_label.text() == "0 drawn | draw on the Crop tab"
 
 
 # field, what the user enters, the stored value, a value stored elsewhere, what the editor then shows
@@ -695,7 +695,7 @@ def test_mask_count_follows_the_folder(window):
     sheet = open_sheet(window)
     controller.set_label_masks([(10, 20, 300, 40), (1500, 20, 200, 60)])
     settle()
-    assert sheet.mask_label.text() == "2 drawn · draw on the Crop tab"
+    assert sheet.mask_label.text() == "2 drawn | draw on the Crop tab"
 
 
 @pytest.mark.parametrize("turn_off, other", [("dialogue_enabled", "labels_enabled"),

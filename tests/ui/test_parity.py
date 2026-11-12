@@ -692,8 +692,8 @@ def test_the_inspector_shows_the_resolved_settings_the_details_dialog_showed(mak
     inspector = window.inspector
 
     assert inspector.file_label.full_text() == "ep02.mkv"
-    assert inspector.media_label.text() == "1920×888 · 27:08 · 25 fps"
-    assert inspector.crop_row.value() == "288, 786 · 1344 × 53"
+    assert inspector.media_label.text() == "1920×888 | 27:08 | 25 fps"
+    assert inspector.crop_row.value() == "288, 786 | 1344 × 53"
     assert inspector.brightness_row.value() == "209"
     assert inspector.window_row.value() == "9:30 → 11:30"
 

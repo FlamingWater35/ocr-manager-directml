@@ -432,7 +432,7 @@ def test_a_video_opens_the_episode_view_on_prepare(make_window, videos):
     assert window.stage.current_file() == "EP06.mkv"
     topbar = window.topbar
     assert topbar.project_label.full_text() == "EP06.mkv"
-    assert topbar.path_label.full_text() == f"· {folder}"
+    assert topbar.path_label.full_text() == f"| {folder}"
     assert topbar.start_button.text() == "▶ Start OCR"
     assert topbar._chips.isHidden()
     assert window.windowTitle() == "OCR Manager — EP06.mkv"

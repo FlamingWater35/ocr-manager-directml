@@ -840,8 +840,8 @@ def test_a_detection_that_differs_from_your_box_is_shown_as_the_detection(make_t
     fits, so neither elides."""
     harness = make_tab(crop=(300, 800, 1300, 60), source=Source.MANUAL)
     rows = dict(harness.tab.panel.rows())
-    assert rows["detected"] == "288, 784 · 1344 × 55"
-    assert rows["yours"] == "300, 800 · 1300 × 60"
+    assert rows["detected"] == "288, 784 | 1344 × 55"
+    assert rows["yours"] == "300, 800 | 1300 × 60"
     assert harness.tab.panel.row_tone("detected") == "warn"
     assert harness.tab.panel.row_tone("yours") == "warn"
     assert harness.tab.canvas.detected_box() == BOX
@@ -886,8 +886,8 @@ def test_label_masks_are_drawn_on_every_file(make_tab):
 def test_the_canvas_tags_name_the_frame_the_crop_and_the_envelope(make_tab):
     harness = make_tab()
     tags = harness.tab.canvas.tags()
-    assert tags["top_left"] == "1920 × 888 · t 01:00.00"
-    assert tags["top_right"] == "Crop 288, 784 · 1344 × 55"
+    assert tags["top_left"] == "1920 × 888 | t 01:00.00"
+    assert tags["top_right"] == "Crop 288, 784 | 1344 × 55"
     assert tags["bottom_right"] == "Dashed = text found across all 11 samples"
     harness.tab.envelope_button.click()
     assert "bottom_right" not in harness.tab.canvas.tags()

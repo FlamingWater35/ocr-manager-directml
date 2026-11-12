@@ -273,9 +273,9 @@ def test_the_track_shows_the_intro_keep_and_outro_with_the_mockups_copy(tab, dur
     assert [(span.start, span.end, span.keep) for span in spans] == [
         (0.0, INTRO_END, False), (INTRO_END, OUTRO_START, True), (OUTRO_START, duration, False)]
     assert [span.label for span in spans] == [
-        "INTRO · 0:00–2:33", "KEEP · 2:33–23:05", "OUTRO · 23:05–27:08"]
+        "INTRO | 0:00–2:33", "KEEP | 2:33–23:05", "OUTRO | 23:05–27:08"]
     assert [span.detail for span in spans] == [
-        "Matches 4 episodes · 98%", "20:32 of OCR", "Matches 4 episodes · 96%"]
+        "Matches 4 episodes | 98%", "20:32 of OCR", "Matches 4 episodes | 96%"]
 
 
 def test_a_skip_span_takes_the_block_it_overlaps_most(controller):
@@ -290,8 +290,8 @@ def test_a_skip_span_takes_the_block_it_overlaps_most(controller):
     made.timeline.resize(800, 68)
     settle()
     first = made.timeline.spans()[0]
-    assert first.label == "INTRO · 0:00–10:00"
-    assert first.detail == "Matches 4 episodes · 90%"
+    assert first.label == "INTRO | 0:00–10:00"
+    assert first.detail == "Matches 4 episodes | 90%"
 
 
 def test_a_skip_span_with_no_block_is_still_drawn_and_labelled(controller):
@@ -302,7 +302,7 @@ def test_a_skip_span_with_no_block_is_still_drawn_and_labelled(controller):
     settle()
     spans = made.timeline.spans()
     assert [span.keep for span in spans] == [False, True, False]
-    assert spans[0].label == "SKIP · 0:00–1:00"
+    assert spans[0].label == "SKIP | 0:00–1:00"
     assert spans[0].detail == ""
 
 
@@ -315,7 +315,7 @@ def test_a_whole_file_entry_with_no_evidence_is_one_keep_span_and_no_warnings(co
     settle()
     spans = made.timeline.spans()
     assert [(span.start, span.end, span.keep) for span in spans] == [(0.0, duration, True)]
-    assert spans[0].label == "KEEP · 0:00–27:08"
+    assert spans[0].label == "KEEP | 0:00–27:08"
     assert made.timeline.speech_segments() == []
     assert made.timeline.envelope() == []
     assert made.warning_texts() == []
@@ -722,7 +722,7 @@ def test_the_compact_timeline_offers_no_menu(bare_compact):
 # --------------------------------------------------------------------------
 
 def test_the_header_names_the_file_its_duration_and_the_other_episodes(tab):
-    assert tab.header_text() == "ep01.mkv · 27:08 · Other episodes 23:38 – 27:08"
+    assert tab.header_text() == "ep01.mkv | 27:08 | Other episodes 23:38 – 27:08"
 
 
 def test_the_header_shows_one_known_duration_once(controller):
@@ -732,7 +732,7 @@ def test_the_header_shows_one_known_duration_once(controller):
     made = RangesTab(controller)
     made.set_file(NAME)
     settle()
-    assert made.header_text() == "ep01.mkv · 27:08 · Other episodes 23:38"
+    assert made.header_text() == "ep01.mkv | 27:08 | Other episodes 23:38"
 
 
 def test_the_header_drops_the_other_episodes_when_none_is_known(controller):
@@ -742,7 +742,7 @@ def test_the_header_drops_the_other_episodes_when_none_is_known(controller):
     made = RangesTab(controller)
     made.set_file(NAME)
     settle()
-    assert made.header_text() == "ep01.mkv · 27:08"
+    assert made.header_text() == "ep01.mkv | 27:08"
 
 
 def test_the_header_is_the_stage_head_toolbar(controller):

@@ -199,7 +199,7 @@ def eta_text(seconds: float) -> str:
 
 
 def run_status_text(snapshot: RunSnapshot, now: float) -> str:
-    """"· Running · 2 of 5 done · 14:22 elapsed · ~9 min left" ("Paused" /
+    """"| Running | 2 of 5 done | 14:22 elapsed | ~9 min left" ("Paused" /
     "Stopping" instead of "Running"; no ETA before a file finished or while
     stopping). The leading word is capitalised because the line stands on its
     own in the top bar, where the path normally is."""
@@ -209,7 +209,7 @@ def run_status_text(snapshot: RunSnapshot, now: float) -> str:
     eta = None if snapshot.stopping else eta_seconds(snapshot)
     if eta is not None:
         parts.append(eta_text(eta))
-    return "· " + " · ".join(parts)
+    return "| " + " | ".join(parts)
 
 
 def idle_workers(snapshot: RunSnapshot, parallel: int) -> int:

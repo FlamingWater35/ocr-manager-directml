@@ -251,7 +251,7 @@ def test_prepare_all_green(qapp):
     view.set_file(NAME)
     assert view.mode() == MODE_READY
     assert view.headline.text() == HEADLINE_READY
-    assert view.subline.text() == "Found the subtitles and tuned the brightness · About 6 min on this computer"
+    assert view.subline.text() == "Found the subtitles and tuned the brightness | About 6 min on this computer"
     assert view.seed_note.text() == "Starting from EP05's settings"
     assert view.start_button.isEnabled()
     assert view.primary_button() is view.start_button
@@ -651,7 +651,7 @@ def test_done_loads_the_written_output(qapp):
     view = done_view(controller, opened)
     assert view.outcome() == OUTCOME_DONE
     assert view.title.text() == "Subtitles unburned"
-    assert "3 lines in 6 min 12 s · saved as" in view.summary.text()
+    assert "3 lines in 6 min 12 s | saved as" in view.summary.text()
     assert "zh/EP06.zh.ass" in view.summary.text()
     assert view.script.lines() == [Line(*line) for line in batch(3)]
     assert view.retry_button.isHidden()
@@ -688,7 +688,7 @@ def test_done_without_a_run_this_session_counts_the_file(qapp):
     controller.output = batch(5)
     controller.done = {NAME}
     view = done_view(controller, [])
-    assert view.summary.text().startswith("5 lines · saved as")
+    assert view.summary.text().startswith("5 lines | saved as")
 
 
 def test_done_signals(qapp):

@@ -200,7 +200,7 @@ def badge_for(entry: FileEntry, *, running_detectors: set[str], done: bool,
 _NOT_DETECTED = "Not detected yet"   # no value at all (source None) and no
                                      # evidence: the field is empty and no
                                      # detection has produced anything for it.
-_NO_EVIDENCE_KEPT = "Detected earlier · no evidence kept"
+_NO_EVIDENCE_KEPT = "Detected earlier | no evidence kept"
 # A DETECTED/HINT value whose evidence dict is gone. Evidence is written to
 # the disposable `.ocr-cache/` (core/project/store.py), while the value, its
 # source and its flags live in `.ocr.json`, so wiping the cache leaves a
@@ -353,10 +353,10 @@ _RANGES_SHOWN = 2          # more keep ranges than this read "first, second +N"
 
 
 def crop_text(crop) -> str:
-    """"288, 784 · 1344 × 55" (x, y · width × height), or "—"."""
+    """"288, 784 | 1344 × 55" (x, y | width × height), or "—"."""
     if crop is None:
         return _NO_VALUE
-    return f"{crop.x}, {crop.y} · {crop.width} × {crop.height}"
+    return f"{crop.x}, {crop.y} | {crop.width} × {crop.height}"
 
 
 def brightness_text(brightness) -> str:
@@ -392,7 +392,7 @@ def ranges_text(time_ranges) -> str:
 
 
 def media_text(media) -> str:
-    """"1920×888 · 27:08 · 25 fps"; unknown (zero) parts are left out."""
+    """"1920×888 | 27:08 | 25 fps"; unknown (zero) parts are left out."""
     parts = []
     if media.width > 0 and media.height > 0:
         parts.append(f"{media.width}×{media.height}")
@@ -400,7 +400,7 @@ def media_text(media) -> str:
         parts.append(format_duration(media.duration))
     if media.fps > 0:
         parts.append(f"{media.fps:g} fps")
-    return " · ".join(parts)
+    return " | ".join(parts)
 
 
 def clock(seconds: float) -> str:
@@ -443,7 +443,7 @@ def can_run_proof(entry: FileEntry) -> bool:
 # themselves, never by a copy of their strings, so renaming a flag breaks the
 # build here instead of silently dropping a warning from the panel. An
 # unknown reason (a flag added without a line here) is shown as it is stored.
-# Several reasons can be joined with " · ", so each one opens with a capital
+# Several reasons can be joined with " | ", so each one opens with a capital
 # and reads as its own phrase rather than as a lowercase continuation.
 BRIGHTNESS_FLAG_TEXT = {
     _brightness.FLAG_NEEDS_CROP: "No crop to measure in",
@@ -464,12 +464,12 @@ BRIGHTNESS_FLAG_TEXT = {
 
 def brightness_flag_text(flagged: str | None) -> str:
     """`entry.flags["brightness"]` (FLAG_* reasons joined by "+") as one
-    line, e.g. "Narrow safe range · Dim text on some frames". "" when
+    line, e.g. "Narrow safe range | Dim text on some frames". "" when
     nothing is flagged. Repeats are collapsed: two reasons can share a
     line ("Not verified")."""
     reasons = [BRIGHTNESS_FLAG_TEXT.get(reason, reason)
                for reason in (flagged or "").split("+") if reason]
-    return " · ".join(dict.fromkeys(reasons))
+    return " | ".join(dict.fromkeys(reasons))
 
 
 # --------------------------------------------------------------------------
@@ -598,7 +598,7 @@ _CROP_FLAG_TEXT = {
 def crop_flag_summary(flagged: str | None) -> tuple[str, bool] | None:
     """(text, blocking) for a crop result's `flagged`, or None when clean.
 
-    Several reasons read as one line joined by " · ". A reason with no copy
+    Several reasons read as one line joined by " | ". A reason with no copy
     of its own falls back to its token, and counts as blocking -- an
     unrecognised flag always does (`only_informational`)."""
     if not flagged:
@@ -606,5 +606,5 @@ def crop_flag_summary(flagged: str | None) -> tuple[str, bool] | None:
     parts = [part for part in flagged.split("+") if part]
     if not parts:
         return None
-    text = " · ".join(_CROP_FLAG_TEXT.get(part, part) for part in parts)
+    text = " | ".join(_CROP_FLAG_TEXT.get(part, part) for part in parts)
     return text, not only_informational(flagged, _crop.INFORMATIONAL_FLAGS)

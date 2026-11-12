@@ -109,7 +109,7 @@ NUDGE_NOTE = "Arrow keys nudge 1 px, ⇧ arrows nudge 10. A corner moves the opp
 # "Apply this crop to all files": the file's box, as MANUAL, for every file not
 # skipped (controller.apply_crop_to_all), after one question.
 APPLY_ALL_TEXT = "Apply this crop to all files"
-APPLY_ALL_CROP_TEXT = ("Set the crop {x}, {y} · {width} × {height} on all {n} files?\n\n"
+APPLY_ALL_CROP_TEXT = ("Set the crop {x}, {y} | {width} × {height} on all {n} files?\n\n"
                        "Each file's own crop is replaced; a file of another size gets the box cut "
                        "to fit and is flagged. Skipped files are left alone.")
 COVERED_NOTE = "The amber box already covers it. Click the warned sample to inspect."
@@ -158,7 +158,7 @@ def _timecode(seconds: float) -> str:
 
 
 def _box_text(box) -> str:
-    return f"{box[0]}, {box[1]} · {box[2]} × {box[3]}"
+    return f"{box[0]}, {box[1]} | {box[2]} × {box[3]}"
 
 
 def _shrink_towards(frame, width: int, height: int):
@@ -689,8 +689,8 @@ class CropCanvas(QWidget):
         frame, and what the tests read instead of pixels."""
         width, height = self._video
         x, y, box_width, box_height = self._box
-        tags = {"top_left": f"{width} × {height} · t {_timecode(self._time)}",
-                "top_right": f"Crop {x}, {y} · {box_width} × {box_height}"}
+        tags = {"top_left": f"{width} × {height} | t {_timecode(self._time)}",
+                "top_right": f"Crop {x}, {y} | {box_width} × {box_height}"}
         # Only with an envelope to explain: `_paint_envelope` draws nothing
         # without one, and the legend would then name a dashed rectangle
         # that is not on screen ("across all 0 samples").
@@ -1562,9 +1562,9 @@ class CropTab:
         bar = QHBoxLayout(self._toolbar)
         bar.setContentsMargins(0, 0, 0, 0)
         bar.setSpacing(TOOLBAR_GAP)
-        self.envelope_button = self._toggle("envelope", "envelope", on=True)
-        self.masked_button = self._toggle("masked", "masked")
-        self.grid_button = self._toggle("grid", "grid")
+        self.envelope_button = self._toggle("Envelope", "envelope", on=True)
+        self.masked_button = self._toggle("Masked", "masked")
+        self.grid_button = self._toggle("Grid", "grid")
         for button in (self.envelope_button, self.masked_button, self.grid_button):
             bar.addWidget(button)
         bar.addSpacing(TOOLBAR_SPACING)
@@ -1633,7 +1633,7 @@ class CropTab:
         return self.panel
 
     def toolbar(self) -> QWidget:
-        """envelope / masked / grid and "⤢ Fit to all N samples", which the
+        """Envelope / Masked / Grid and "⤢ Fit to all N samples", which the
         Stage mounts in the stage head (ruling B3)."""
         return self._toolbar
 

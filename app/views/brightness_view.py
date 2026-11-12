@@ -141,7 +141,7 @@ from app.widgets.base import KvRow, SectionHeader
 
 PICK_KINDS = ("dark", "bright", "thin", "two_line")       # the detector's, in gallery order
 LINE_KIND = "line"                                         # a random subtitle line
-# A tile's caption reads "09:38 · Dark scene": the time and the kind are two
+# A tile's caption reads "09:38 | Dark scene": the time and the kind are two
 # pieces of copy separated by a dot, so each starts with a capital.
 KIND_LABELS = {"dark": "Dark scene", "bright": "Bright background", "thin": "Thin strokes",
                "two_line": "Two lines", LINE_KIND: "Subtitle line"}
@@ -150,10 +150,10 @@ SHUFFLE_TEXT = "↻ Shuffle"
 SHUFFLE_TIP = "Draw other random subtitle lines (the detector's picks stay)"
 LOST_TOGGLE_TEXT = "Show lost pixels"
 MASK_TOGGLE_TEXT = "Raw ⇄ masked"
-TILE_TIP = "Wheel: zoom around the cursor · drag: pan · double-click: fit"
+TILE_TIP = "Wheel: zoom around the cursor | drag: pan | double-click: fit"
 TILE_LOADING = "Loading…"
 TILE_UNREADABLE = "This frame could not be read"
-CURVE_HEADER = "Threshold · keeps pixels where min(B,G,R) ≥ t"
+CURVE_HEADER = "Threshold | keeps pixels where min(B,G,R) ≥ t"
 CURVE_HINT = "Drag anywhere — every tile redraws in under a millisecond"
 CURVE_CAPTION = "■ OCR holds up"
 CLUTTER_CAPTION = "┅ Background clutter still firing"
@@ -292,8 +292,8 @@ def caption_texts(metrics, width: float, left: str, right: str,
     because of it.
 
     The other half gives way in two steps. `short` is the part worth keeping
-    whole (the time), so a tile that cannot hold "09:38 · Dark scene" reads
-    "09:38" rather than "09:38 · …", which says less in the same space.
+    whole (the time), so a tile that cannot hold "09:38 | Dark scene" reads
+    "09:38" rather than "09:38 | …", which says less in the same space.
     Below even that, it elides."""
     room = float(width) - (metrics.horizontalAdvance(right) + CAPTION_GAP if right else 0.0)
     for text in (left, short):
@@ -512,8 +512,8 @@ class ZoomTile(QWidget):
         return self._source
 
     def caption_left(self) -> str:
-        names = " · ".join(KIND_LABELS.get(kind, kind) for kind in self.kinds)
-        return f"{clock(self.time)} · {names}"
+        names = " | ".join(KIND_LABELS.get(kind, kind) for kind in self.kinds)
+        return f"{clock(self.time)} | {names}"
 
     def caption_right(self) -> str:
         return self._right
@@ -1697,7 +1697,7 @@ class BrightnessTab:
             # sentence that explains why a tile just turned red.
             parts.append(f"Above {losing[0]} the {clock(losing[1])} sample starts losing strokes.")
         if auto is not None and stored is not None and auto != stored:
-            parts.append(f"Detected {auto} · yours {stored}")      # ruling C2
+            parts.append(f"Detected {auto} | yours {stored}")      # ruling C2
         return " ".join(parts)
 
     @staticmethod

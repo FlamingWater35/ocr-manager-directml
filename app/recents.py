@@ -137,10 +137,10 @@ def time_ago(seconds: float) -> str:
 
 
 def detail(entry: RecentEntry, now: float) -> str:
-    """The row's right-hand text: "12 episodes · 2 h ago" for a folder, when
+    """The row's right-hand text: "12 episodes | 2 h ago" for a folder, when
     it was opened for an episode."""
     when = time_ago(now - entry.opened)
     if entry.kind != FOLDER or entry.count is None:
         return when
     episodes = "No episodes" if entry.count == 0 else _count(entry.count, "episode")
-    return f"{episodes} · {when}"
+    return f"{episodes} | {when}"

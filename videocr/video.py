@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List
 from collections import Counter
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 from threading import Thread
 import cv2
 import logging
@@ -51,6 +51,11 @@ def _count_lines(results) -> int:
 # _candidates_admitted() (above) is what makes that true for the candidate
 # buffer specifically.
 BATCH_SIZE = 32
+
+# How long the consumer waits for a message before it re-checks the cancel
+# event (seconds). Also the deadline the producer uses to give up on a full
+# queue when a stop is requested -- see `_put_cancellable`.
+QUEUE_POLL_SECONDS = 0.5
 
 # Maximum RAM to use for frame buffer (10GB)
 MAX_BUFFER_BYTES = 10 * 1024**3
@@ -228,6 +233,32 @@ def _center_mask_is_empty(center_bgr: np.ndarray, threshold: int) -> bool:
     """
     return cv2.countNonZero(cv2.inRange(
         center_bgr, (threshold,) * 3, (255,) * 3)) == 0
+
+
+def _put_cancellable(queue: Queue, item, cancel_event) -> bool:
+    """`queue.put(item)`, but give up when the run is cancelled.
+
+    The consumer exits its loop as soon as it sees the cancel event, and then
+    joins the producer. A producer blocked in a plain `put()` on a full queue
+    would never reach its own cancel check, so the join would wait for it
+    forever: the run stops reporting, the runner never gets its terminal
+    event, and the window sits on "Stopping..." with no way out. Measured by
+    forcing a 1-frame buffer and cancelling: the thread dump showed the
+    producer in queue.py's `put` and the consumer in `Thread.join`, and the
+    run never finished.
+
+    Returns False when the caller should stop producing (cancelled), True
+    once the item is in the queue. The timeout is the same poll the consumer
+    uses, so a cancel is noticed within QUEUE_POLL_SECONDS.
+    """
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        try:
+            queue.put(item, timeout=QUEUE_POLL_SECONDS)
+            return True
+        except Full:
+            continue
 
 
 class Video:
@@ -527,7 +558,7 @@ class Video:
 
                     wait_start = time.perf_counter()
                     try:
-                        msg = frame_queue.get(timeout=0.5)
+                        msg = frame_queue.get(timeout=QUEUE_POLL_SECONDS)
                     except Empty:
                         # Timeout — loop back to check cancel_event
                         self._queue_wait_time += time.perf_counter() - wait_start
@@ -991,7 +1022,8 @@ class Video:
                             prev_grey = grey
                             # Reset history to current detection for clean END tracking
                             detection_history = [True]
-                            queue.put(("frame", frame, i + ocr_start, current_pts))
+                            if not _put_cancellable(queue, ("frame", frame, i + ocr_start, current_pts), cancel_event):
+                                break
                             frames_in_subtitle = 0
                             candidates_sent = 0
                         elif progress is not None:
@@ -1029,15 +1061,18 @@ class Video:
                                 frames_in_subtitle += 1
                                 if (candidates_sent < MAX_CANDIDATES
                                         and frames_in_subtitle % candidate_stride == 0):
-                                    queue.put(("candidate", frame.copy(), i + ocr_start, current_pts))
+                                    if not _put_cancellable(queue, ("candidate", frame.copy(), i + ocr_start, current_pts), cancel_event):
+                                        break
                                     candidates_sent += 1
-                                queue.put(("extend", i + ocr_start, current_pts))
+                                if not _put_cancellable(queue, ("extend", i + ocr_start, current_pts), cancel_event):
+                                    break
                                 prev_grey = grey
                                 continue
 
                         # Different text - OCR new subtitle
                         prev_grey = grey
-                        queue.put(("frame", frame, i + ocr_start, current_pts))
+                        if not _put_cancellable(queue, ("frame", frame, i + ocr_start, current_pts), cancel_event):
+                            break
                         frames_in_subtitle = 0
                         candidates_sent = 0
                         continue
@@ -1053,20 +1088,25 @@ class Video:
                             frames_in_subtitle += 1
                             if (candidates_sent < MAX_CANDIDATES
                                     and frames_in_subtitle % candidate_stride == 0):
-                                queue.put(("candidate", frame.copy(), i + ocr_start, current_pts))
+                                if not _put_cancellable(queue, ("candidate", frame.copy(), i + ocr_start, current_pts), cancel_event):
+                                    break
                                 candidates_sent += 1
-                            queue.put(("extend", i + ocr_start, current_pts))
+                            if not _put_cancellable(queue, ("extend", i + ocr_start, current_pts), cancel_event):
+                                break
                             prev_grey = grey
                             continue
                     prev_grey = grey
 
                 # Different frame - send for OCR
-                queue.put(("frame", frame, i + ocr_start, current_pts))
+                if not _put_cancellable(queue, ("frame", frame, i + ocr_start, current_pts), cancel_event):
+                    break
                 frames_in_subtitle = 0
                 candidates_sent = 0
             else:
                 v.read()
 
-        # Signal end of frames and send producer timing
+        # Signal end of frames and send producer timing. Cancellable for the
+        # same reason as every other put: the consumer may already have left,
+        # and a full queue would then block this thread forever.
         self._producer_time = time.perf_counter() - producer_start
-        queue.put(("done", None, None, None))
+        _put_cancellable(queue, ("done", None, None, None), cancel_event)

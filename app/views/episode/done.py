@@ -3,7 +3,7 @@ are written, and here is what they say.
 
 "Subtitles unburned": N lines in T, saved as the output's label next to the
 video (`controller.output_label`: "zh/EP06.zh.ass", or "EP06.zh.ass" with
-the subfolder off), then Show in folder · Open the .ass · Open another episode…, and
+the subfolder off), then Show in folder | Open the .ass | Open another episode…, and
 "Review the settings used ▸" back to the tabs. The Script panel is loaded
 from the written file (`controller.output_lines`), not from what the run
 reported along the way, so the user proofreads the exact output: QA-fixed,
@@ -45,8 +45,8 @@ from app.widgets.base import Button
 TITLE_DONE = "Subtitles unburned"
 TITLE_FAILED = "OCR failed"
 TITLE_STOPPED = "OCR stopped"
-SUMMARY = "{lines} in {elapsed} · saved as {output} next to the video"
-SUMMARY_NO_TIME = "{lines} · saved as {output} next to the video"
+SUMMARY = "{lines} in {elapsed} | saved as {output} next to the video"
+SUMMARY_NO_TIME = "{lines} | saved as {output} next to the video"
 STOPPED_TEXT = "The run was stopped before it finished."
 KEPT_TEXT = "The earlier {output} is unchanged."
 SHOW_IN_FOLDER = "Show in folder"

@@ -645,7 +645,7 @@ class MainWindow(QMainWindow):
     def _check_dependencies(self) -> None:
         problems = dependency_problems()
         if problems:
-            self.dependency_banner.show_message(" · ".join(title for title, _text in problems),
+            self.dependency_banner.show_message(" | ".join(title for title, _text in problems),
                                                 "\n\n".join(text for _title, text in problems), "warn")
 
     def closeEvent(self, event) -> None:

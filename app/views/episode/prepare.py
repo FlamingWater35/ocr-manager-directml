@@ -359,7 +359,7 @@ class PrepareView(QWidget):
         self.headline.setText({MODE_WORKING: HEADLINE_WORKING, MODE_READY: HEADLINE_READY,
                                MODE_FLAGGED: HEADLINE_FLAGGED}[self._mode])
         self._refresh_subline(entry)
-        self.reason.setText("⚠ " + " · ".join(flag_reasons(entry)) if self._mode == MODE_FLAGGED else "")
+        self.reason.setText("⚠ " + " | ".join(flag_reasons(entry)) if self._mode == MODE_FLAGGED else "")
         self.reason.setVisible(self._mode == MODE_FLAGGED)
         seed = self._controller.episode_seed_source()
         self.seed_note.setText(SEED_NOTE.format(episode=episode_label(seed)) if seed else "")
@@ -388,7 +388,7 @@ class PrepareView(QWidget):
         estimate = self._controller.episode_estimate_seconds()
         if estimate is not None and estimate > 0:
             parts.append(ESTIMATE.format(estimate=estimate_words(estimate)))
-        self.subline.setText(" · ".join(parts))
+        self.subline.setText(" | ".join(parts))
         self.subline.setVisible(True)
 
     def _refresh_preview(self, entry) -> None:

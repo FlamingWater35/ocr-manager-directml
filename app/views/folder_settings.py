@@ -84,7 +84,7 @@ EDITOR_WIDTH = 84
 LANGUAGE_WIDTH = 170           # the longest name, "Chinese (Traditional)", whole
 COMMIT_IDLE_MS = 400          # milliseconds, not pixels: never scaled
 SLIDE_MS = 160
-MASKS_TEXT = "{count} drawn · draw on the Crop tab"
+MASKS_TEXT = "{count} drawn | draw on the Crop tab"
 
 
 def scope_text(count: int, folder: str) -> str:

@@ -21,12 +21,19 @@ now showing, False for the others. A tab that does work only for the user's
 eyes uses it -- the Brightness tab asks the controller to fetch the shown
 file's gallery lines first, and a tab nobody is looking at must not jump the
 GPU queue. Tabs without it are simply not told.
+
+The tab bar is one tab stop, like every tab bar: only the current tab
+accepts Tab focus, so Tab enters the bar on it and the next Tab leaves;
+Left/Right move the selection (wrapping at the ends), and a click moves the
+focus as well as the fill. That last part is not cosmetic -- with the fill
+and the ring on different tabs, two tabs looked active at once, which is the
+defect `tests/ui/test_stage_tabs.py` pins.
 """
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
 from app.state_text import brightness_text, crop_text, ranges_text
@@ -80,8 +87,10 @@ class Stage(QWidget):
             button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
             button.setProperty("on", index == 0)
             button.clicked.connect(lambda _checked=False, i=index: self.set_current(i))
+            button.installEventFilter(self)          # a click must also move the focus, see eventFilter()
             head_layout.addWidget(button)
             self._buttons.append(button)
+        self._apply_focus_policy()
         head_layout.addStretch(1)
         self._head = head
         self._head_layout = head_layout
@@ -159,9 +168,65 @@ class Stage(QWidget):
         for position, button in enumerate(self._buttons):
             button.setProperty("on", position == index)
             repolish(button)
+        self._apply_focus_policy()                   # before the focus moves: only a TabFocus button takes it
+        self._follow_focus(index)
         self._show_toolbar(index)
         self._activate(index)
         self.tab_changed.emit(index)
+
+    def _follow_focus(self, index: int) -> None:
+        """Move the keyboard focus to the tab that is now current, when the
+        focus is already in the tab bar.
+
+        Without this a click on a tab moved the fill but left the focus ring
+        on the tab it came from, so two tabs read as active at once (the
+        defect in the screenshot that prompted this). Programmatic switches
+        -- the model changing under a tab, the inspector asking for one --
+        leave the focus alone: stealing it from a page the user is typing in
+        would be worse than the mismatch. `_focus_is_in_tab_bar` is what
+        draws that line."""
+        if not self._focus_is_in_tab_bar():
+            return
+        self._buttons[index].setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _focus_is_in_tab_bar(self) -> bool:
+        return any(button.hasFocus() for button in self._buttons)
+
+    def _apply_focus_policy(self) -> None:
+        """The bar is ONE tab stop, like every real tab bar.
+
+        Only the current tab accepts Tab focus; the others are
+        `ClickFocus`, so Tab enters the bar on the selected tab and leaves
+        it again, and Left/Right (see `eventFilter`) is how the user moves
+        between them. Making all three Tab stops meant Tab walked the bar
+        one button at a time while the fill stayed on the selected tab, so
+        the ring and the fill sat on different tabs -- the same two-tabs
+        look the click defect produced."""
+        for position, button in enumerate(self._buttons):
+            button.setFocusPolicy(Qt.FocusPolicy.TabFocus if position == self._current
+                                  else Qt.FocusPolicy.ClickFocus)
+
+    def eventFilter(self, watched, event) -> bool:
+        """Two keyboard/mouse gaps the plain QPushButton leaves open:
+
+        A click gives a `Qt.FocusPolicy.TabFocus` button no focus, so the
+        fill moved while the amber ring stayed behind -- two tabs looking
+        active. And Left/Right only walked the focus, so arrowing to a tab
+        never showed it. Both are fixed here, on the buttons themselves, so
+        a click and a keypress end in the same state: one tab, filled and
+        ringed."""
+        button = watched if watched in self._buttons else None
+        if button is None:
+            return super().eventFilter(watched, event)
+        if event.type() == QEvent.Type.MouseButtonPress:
+            button.setFocus(Qt.FocusReason.MouseFocusReason)
+        elif event.type() == QEvent.Type.KeyPress:
+            step = {Qt.Key.Key_Left: -1, Qt.Key.Key_Right: 1}.get(event.key())
+            if step is not None:
+                position = self._buttons.index(button)
+                self.set_current((position + step) % len(self._buttons))
+                return True
+        return super().eventFilter(watched, event)
 
     def set_file(self, name: str | None) -> None:
         self._file = name

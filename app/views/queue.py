@@ -39,7 +39,7 @@ from app.widgets.base import Badge, ElidedLabel, SegmentedControl, repolish
 
 FILTER_ALL, FILTER_NEEDS_YOU, FILTER_REVIEWED = 0, 1, 2
 # Non-breaking spaces inside each hint, so the rail wraps between hints, never inside one.
-HINT_HTML = (f'↑&nbsp;↓&nbsp;move · <b style="color:{tokens.DIM}">Space</b>&nbsp;mark&nbsp;reviewed · '
+HINT_HTML = (f'↑&nbsp;↓&nbsp;move | <b style="color:{tokens.DIM}">Space</b>&nbsp;mark&nbsp;reviewed | '
              f'<b style="color:{tokens.DIM}">T</b>&nbsp;test&nbsp;OCR')
 RUN_BADGE_STATES = frozenset({QUEUED, RUNNING, FAILED})     # a run's transient badges (ruling B10)
 EMPTY_FILTER_TEXT = "No files match this filter."

@@ -278,10 +278,10 @@ def test_badge_set_state_updates_text_and_tone(qapp):
 
 
 def test_kvrow_default_tone(qapp):
-    row = KvRow("Crop", "288, 784 · 1344 × 55")
+    row = KvRow("Crop", "288, 784 | 1344 × 55")
     assert row.property("tone") == ""
     assert row._value_label.property("tone") == ""
-    assert row._value_label.text() == "288, 784 · 1344 × 55"
+    assert row._value_label.text() == "288, 784 | 1344 × 55"
     assert row._key_label.text() == "Crop"
 
 
@@ -409,7 +409,7 @@ def test_segmented_control_set_labels_replaces_segments(qapp):
 def test_read_accessors(qapp):
     chip = Chip(dot="warn", count=1, label="Needs you")
     assert chip.text() == "1 Needs you" and chip.tone() == "warn"
-    assert KvRow("Crop", "288, 784 · 1344 × 55").value() == "288, 784 · 1344 × 55"
+    assert KvRow("Crop", "288, 784 | 1344 × 55").value() == "288, 784 | 1344 × 55"
     row = KvRow("Brightness", "211")
     row.set_value("211", "warn", tint_border=False)
     assert (row.value_tone(), row.property("tone")) == ("warn", "")
@@ -472,7 +472,7 @@ def test_a_long_kvrow_value_never_widens_its_column(qapp):
     and the tail of its value off the edge of the window. No value may
     dictate the column's width: the row's minimum is its key's, and the
     value elides into whatever is left, with the whole of it on hover."""
-    long_value = "576, 1876 · 2688 × 159 · yours 579, 1876 · 2688 × 159"
+    long_value = "576, 1876 | 2688 × 159 | yours 579, 1876 | 2688 × 159"
     # The theme's fonts, installed here: without them (this test alone, or
     # first on a pytest-xdist worker) the value fits and never elides.
     qss.apply_theme(qapp)
@@ -685,7 +685,7 @@ def _widget_metrics() -> dict[str, int]:
     """Every length the base widgets lay out with, measured off real
     widgets (not read back from the tokens they were built from)."""
     chip = Chip(dot="ok", count=3, label="Reviewed")
-    kv = KvRow("Crop", "288, 784 · 1344 × 55")
+    kv = KvRow("Crop", "288, 784 | 1344 × 55")
     header = SectionHeader("Detected")
     conf = ConfBar(0.5, caption="12 of 12 samples agree")
     mini = MiniProgress(0.5)

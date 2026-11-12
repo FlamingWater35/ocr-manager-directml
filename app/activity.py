@@ -17,7 +17,7 @@ TERMINAL_EVENTS = frozenset({"finished", "failed", "cancelled"})
 RECENT_LIMIT = 5
 
 # Human wording per job kind, for views that name a job ("Audio analysis done
-# 11 s ago"). Each starts with a capital: the strip shows it after a "·" or as
+# 11 s ago"). Each starts with a capital: the strip shows it after a "|" or as
 # the whole message, never as the continuation of a lowercase sentence.
 KIND_LABELS = {
     "metadata": "Metadata",
