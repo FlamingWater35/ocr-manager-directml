@@ -126,6 +126,18 @@ class Stage(QWidget):
     def _show_toolbar(self, index: int) -> None:
         """Mount the tab's toolbar in the head, hiding the previous one.
 
+        The previous bar goes away BEFORE the new one appears. Showing first
+        and hiding in the same loop leaves both bars visible for the layout
+        pass Qt queues from the `show()`, so the head's minimum width becomes
+        the tab buttons plus BOTH toolbars; the window then widens to satisfy
+        that phantom floor and never comes back down, so every Crop ->
+        Brightness -> Crop round trip cost another slice of width until a
+        long file name finally fit in the top bar. That is the ratchet
+        `tests/ui/test_stage_toolbar_width.py` pins -- and the reason that
+        module asserts the event ORDER as well as the width: the offscreen
+        platform does not propagate size hints, so only the order reproduces
+        the defect in CI.
+
         `getattr`: `toolbar` is optional, so a tab that predates it (or a
         test's stand-in) simply has none."""
         factory = getattr(self._tabs[index], "toolbar", None)
@@ -133,8 +145,12 @@ class Stage(QWidget):
         if bar is not None and bar not in self._toolbars:
             self._toolbars.append(bar)
             self._head_layout.addWidget(bar)
+            bar.hide()                              # it must not join the layout pass that adds it
         for other in self._toolbars:
-            other.setVisible(other is bar)
+            if other is not bar:
+                other.hide()
+        if bar is not None:
+            bar.show()
 
     def _activate(self, index: int) -> None:
         """Tell each tab that has `set_active` whether it is the one showing

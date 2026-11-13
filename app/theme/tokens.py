@@ -144,7 +144,18 @@ TAG_BG = (10, 12, 16, 209)
 # system sans with CJK coverage") replaces them with a real family list,
 # ending in a CJK-capable face so Chinese subtitle text in the canvas/
 # glyph tiles always has coverage.
-FONT_STACK = ["Inter", "Segoe UI", "Noto Sans", "Noto Sans CJK SC", "sans-serif"]
+#
+# "Segoe UI Symbol" sits before the generic `sans-serif` for the symbols the
+# UI puts in front of words. Without it Qt reaches the colour emoji font for
+# three of them, so the pause button drew a blue rounded square, the settings
+# button a purple gear and a warning a colour triangle -- beside thirteen
+# monochrome glyphs that stayed the pen's colour. One font in the chain is
+# what makes the set one design language: measured, `⏸ ⚙ ⚠` come back
+# monochrome at every size the UI uses, and every Latin/CJK string keeps its
+# exact advance (only strings containing those three symbols change width).
+# `tests/ui/test_symbol_glyphs.py` pins it, so a future edit to this list
+# cannot quietly bring the emoji back.
+FONT_STACK = ["Inter", "Segoe UI", "Noto Sans", "Noto Sans CJK SC", "Segoe UI Symbol", "sans-serif"]
 
 FONT_SIZE_XS_BASE = 9
 FONT_SIZE_XS = pt(FONT_SIZE_XS_BASE)            # .badge, rrow header labels, lane "speech" label

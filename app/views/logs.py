@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QGuiApplication, QTextCursor
-from PyQt6.QtWidgets import QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QStyle, QStyleOptionButton,
+                             QVBoxLayout, QWidget)
 
 from app.logbook import FIRST_KEYS, LOG_LIMIT
 from app.theme import tokens
@@ -44,6 +45,78 @@ def default_size() -> tuple[int, int]:
     return width, height
 
 
+class _LogHeader(QPushButton):
+    """The section's header button: "▸ key" / "▾ key", elided to its width.
+
+    A `QPushButton` sizes itself to its text, and this text is a log KEY --
+    "Pipeline", "Detections", or a file name, which is as long as the episode
+    happens to be called. A plain button therefore made the longest file name
+    in the folder a floor under the whole window: the logs window opened at
+    its default width and then grew past it to fit the name, and a name wider
+    than the screen grew it past the screen. `minimumSizeHint` reports no
+    width at all and the text elides into whatever the window gives it, so
+    the window's width is the user's business and never the name's. The full
+    key stays in the tooltip.
+    """
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._full = ""
+
+    def set_full_text(self, text: str) -> None:
+        self._full = text
+        self.setToolTip(text)
+        self._elide()
+
+    def full_text(self) -> str:
+        return self._full
+
+    def sizeHint(self):
+        """The width the FULL key would take, so the preferred size does not
+        shrink as the text elides -- a sizeHint that followed the elided text
+        would chase its own tail through every layout pass.
+
+        The style's chrome (padding plus border) is whatever `QPushButton`
+        added around the text it was showing, so it is read off the base hint
+        rather than guessed as a constant."""
+        hint = super().sizeHint()
+        chrome = hint.width() - self.fontMetrics().horizontalAdvance(self.text())
+        hint.setWidth(self.fontMetrics().horizontalAdvance(self._full) + max(0, chrome))
+        return hint
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        hint.setWidth(0)
+        return hint
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        """Fit the key into the button's TEXT area, not its whole rect.
+
+        The stylesheet pads the button (9 px each side plus a border), so
+        eliding to `contentsRect()` left the ellipsis itself under the
+        padding, where it was clipped: the name read as cut off rather than
+        as shortened. `SE_PushButtonContents` is the rect the style actually
+        draws text in, so asking it means the "…" is always visible."""
+        width = self._text_width()
+        text = self._full if width <= 0 else self.fontMetrics().elidedText(
+            self._full, Qt.TextElideMode.ElideRight, width)
+        if text != super().text():
+            super().setText(text)
+
+    def _text_width(self) -> int:
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        return self.style().subElementRect(QStyle.SubElement.SE_PushButtonContents, option, self).width()
+
+
 class LogSection(QWidget):
     """A header button ("▸ key" / "▾ key") over a read-only text body."""
 
@@ -54,7 +127,7 @@ class LogSection(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        self.header = QPushButton()
+        self.header = _LogHeader()
         self.header.setObjectName("LogHeader")
         self.header.setCheckable(True)
         self.header.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -125,7 +198,7 @@ class LogSection(QWidget):
         self._update_header()
 
     def _update_header(self) -> None:
-        self.header.setText(f"{'▾' if self.is_expanded() else '▸'} {self.key}")
+        self.header.set_full_text(f"{'▾' if self.is_expanded() else '▸'} {self.key}")
 
 
 class LogsWindow(QWidget):

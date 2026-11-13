@@ -74,7 +74,7 @@ from app.state_text import format_duration
 from app.theme import tokens
 from app.time_spans import _merged, parse_clock, read_ranges  # noqa: F401  (re-exported: the tab's own names)
 from app.views.inspector_sections import Section, note_label, small_button
-from app.widgets.base import Button, KvRow, repolish
+from app.widgets.base import Button, ElidedLabel, KvRow, repolish
 
 # --- copy ------------------------------------------------------------------
 
@@ -1065,14 +1065,20 @@ class RangesTab:
         column.addStretch(1)
 
         # Ruling B3: the dim header line lives in the stage head, not on the page.
+        # Elided, like the top bar's file name: a plain QLabel's minimum width
+        # is its whole text, and this text starts with the file name -- so a
+        # long name became the window's width floor (the second half of the
+        # defect `tests/ui/test_stage_toolbar_width.py` pins). The head gives
+        # this as much room as the tab buttons leave, and the full line stays
+        # in the tooltip.
         self._toolbar = QWidget()
         self._toolbar.setObjectName("RangesToolbar")
         bar = QHBoxLayout(self._toolbar)
         bar.setContentsMargins(0, 0, 0, 0)
         bar.setSpacing(0)
-        self._header = QLabel("")
+        self._header = ElidedLabel(mode=Qt.TextElideMode.ElideRight)
         self._header.setObjectName("Note")
-        bar.addWidget(self._header)
+        bar.addWidget(self._header, 1)
 
         self.panel = RangesInspectorPanel()
         self.panel.add_requested.connect(self.add_range)
@@ -1103,7 +1109,7 @@ class RangesTab:
         duration = self.timeline.duration()
         unreadable = self.timeline.unreadable()
         self._page.setEnabled(entry is not None)
-        self._header.setText("" if entry is None else header_text(
+        self._header.set_full_text("" if entry is None else header_text(
             self._file, duration, self._other_durations()))
         self._sync_warnings()
         self._sync_status(entry, duration, unreadable)
@@ -1115,7 +1121,7 @@ class RangesTab:
         return self._file
 
     def header_text(self) -> str:
-        return self._header.text()
+        return self._header.full_text()
 
     def warning_rows(self) -> list[WarningRow]:
         return list(self._rows)

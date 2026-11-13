@@ -87,7 +87,10 @@ def test_font_stack_is_cjk_capable_fallback_chain():
     # Ruling C9: "The font stack falls back to the system sans with CJK
     # coverage" -- the exact list from the Task 1 brief, not ui-spec's
     # literal (mac/web-only) "-apple-system, system-ui" stack.
-    assert tokens.FONT_STACK == ["Inter", "Segoe UI", "Noto Sans", "Noto Sans CJK SC", "sans-serif"]
+    # "Segoe UI Symbol" is in the chain for the symbol glyphs; see
+    # `test_symbol_glyphs.py` for the measurement that put it there.
+    assert tokens.FONT_STACK == ["Inter", "Segoe UI", "Noto Sans", "Noto Sans CJK SC",
+                                 "Segoe UI Symbol", "sans-serif"]
 
 
 # ui-spec.md's own numbers, which are the mockup's -- so they are pinned
