@@ -58,6 +58,16 @@ REVIEW_LINK = "Review the settings used ▸"
 OUTCOME_DONE, OUTCOME_FAILED, OUTCOME_STOPPED = "done", "failed", "stopped"
 PREVIEW_RESERVED_HEIGHT = 330      # mockup px of summary and buttons above the preview
 
+# The outcome mark, drawn at 34 px above the headline. The three sit in the
+# same slot and must read as one family, which is what the stopped one did
+# not: it was a SOLID "■" in DIM, so at this size it was 41x40 px of solid
+# grey ink against the check's thin 39x44 stroke -- a filled block that read
+# as a missing-image placeholder, not as "stopped". It is a hollow "▢" in the
+# same WARN amber the top bar's own Stop button uses, which matches the other
+# two marks' stroke weight (37 % inked against the block's 100 %) and says
+# "halted, not failed" without borrowing the error red.
+STOPPED_MARK, STOPPED_MARK_COLOUR = "▢", tokens.WARN
+
 
 def lines_words(count: int) -> str:
     return f"{count} line" if count == 1 else f"{count} lines"
@@ -185,8 +195,9 @@ class DoneView(QWidget):
             self.script.set_lines(self._controller.output_lines(name))
         count = self.script.count()
         ok = self._outcome == OUTCOME_DONE
-        self.icon.setText("✓" if ok else "!" if self._outcome == OUTCOME_FAILED else "■")
-        colour = tokens.OK if ok else tokens.BAD if self._outcome == OUTCOME_FAILED else tokens.DIM
+        failed = self._outcome == OUTCOME_FAILED
+        self.icon.setText("✓" if ok else "!" if failed else STOPPED_MARK)
+        colour = tokens.OK if ok else tokens.BAD if failed else STOPPED_MARK_COLOUR
         self.icon.setStyleSheet(f"color: {colour}; background: transparent; font-size: {round(tokens.pt(34))}px;")
         self.title.setText({OUTCOME_DONE: TITLE_DONE, OUTCOME_FAILED: TITLE_FAILED,
                             OUTCOME_STOPPED: TITLE_STOPPED}[self._outcome])

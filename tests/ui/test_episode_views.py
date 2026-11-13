@@ -24,9 +24,11 @@ from PyQt6.QtWidgets import QApplication
 
 from app.episode_feed import Line, LineFeed, format_ts
 from app.run_snapshot import CANCELLED, DONE, FAILED, RUNNING, RunFileRow, RunSnapshot
+from app.theme import tokens
 from app.views.episode import DoneView, PrepareView, ScriptPanel, WorkingView
 from app.views.episode import prepare as prepare_module
-from app.views.episode.done import OUTCOME_DONE, OUTCOME_FAILED, OUTCOME_STOPPED
+from app.views.episode.done import (OUTCOME_DONE, OUTCOME_FAILED, OUTCOME_STOPPED, STOPPED_MARK,
+                                    STOPPED_MARK_COLOUR)
 from app.views.episode.prepare import (
     ACTIVE,
     CONFIRMING_LABEL,
@@ -720,3 +722,94 @@ def test_a_failed_or_stopped_run_offers_try_again(qapp, state, outcome, title):
     view.retry_requested.connect(lambda: retries.append(True))
     view.retry_button.click()
     assert retries == [True]
+
+
+# --------------------------------------------------------------------------
+# The outcome mark above the headline
+# --------------------------------------------------------------------------
+# The three outcomes draw their mark in the same slot, so the marks have to
+# read as one family. The stopped one did not: it was a SOLID "■" in DIM,
+# which at 34 px is a filled grey block -- it read as a missing-image
+# placeholder rather than as "stopped". These tests pin the properties that
+# made the difference rather than the literal glyph, so a different hollow
+# mark would pass and a filled one would not.
+
+def _mark_ink(view) -> tuple[int, int, int]:
+    """(ink pixels, bounding width, bounding height) of the drawn mark.
+
+    Drawn in white on black: only the SHAPE is being measured, and the colour
+    is a separate assertion. The pen is set here rather than read off the
+    label because `refresh()` writes the colour straight into a stylesheet,
+    so the `tone_color` property still holds the value the label was built
+    with -- reading it would silently measure the wrong colour.
+    """
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QColor, QImage, QPainter
+    cell = QImage(120, 120, QImage.Format.Format_RGB32)
+    cell.fill(QColor("#000000"))
+    painter = QPainter(cell)
+    painter.setFont(view.icon.font())
+    painter.setPen(QColor("#ffffff"))
+    painter.drawText(cell.rect(), int(Qt.AlignmentFlag.AlignCenter), view.icon.text())
+    painter.end()
+    ink, xs, ys = 0, [], []
+    for y in range(cell.height()):
+        for x in range(cell.width()):
+            pixel = cell.pixelColor(x, y)
+            if pixel.red() + pixel.green() + pixel.blue() == 0:
+                continue
+            ink += 1
+            xs.append(x)
+            ys.append(y)
+    if not xs:
+        return 0, 0, 0
+    return ink, max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+
+
+def _stopped_view(qapp):
+    controller = StubController(ready_entry())
+    controller.snapshot = run_snapshot(CANCELLED, 0.4, finished=True, finished_at=50.0)
+    return done_view(controller, [])
+
+
+def test_a_stopped_run_draws_a_hollow_mark_not_a_filled_block(qapp):
+    """A solid block is what read as a broken image; the mark is an outline."""
+    view = _stopped_view(qapp)
+    assert view.icon.text() == STOPPED_MARK
+    ink, width, height = _mark_ink(view)
+    assert ink > 0 and width > 0 and height > 0
+    assert ink / (width * height) < 0.6, (
+        f"the stopped mark fills {100 * ink / (width * height):.0f}% of its box, so it reads as "
+        "a solid block rather than as an outline like the check and the bang")
+
+
+def test_the_three_outcome_marks_carry_similar_visual_weight(qapp):
+    """Same slot, same size: no one mark may shout louder than the others."""
+    weights = {}
+    for state, label in ((None, "done"), (FAILED, "failed"), (CANCELLED, "stopped")):
+        controller = StubController(ready_entry())
+        controller.done = {NAME}
+        controller.snapshot = run_snapshot(state, 0.4, finished=True,
+                                           error="boom" if state == FAILED else "",
+                                           finished_at=50.0) if state else None
+        view = done_view(controller, [])
+        if state is None:
+            view._outcome = OUTCOME_DONE
+            view.refresh()
+        ink, width, height = _mark_ink(view)
+        weights[label] = ink / max(1, width * height)
+    assert max(weights.values()) - min(weights.values()) < 0.45, (
+        f"one mark is much heavier than the others: {weights}")
+
+
+def test_a_stopped_run_does_not_borrow_the_error_colour(qapp):
+    """Stopped is not failed: it must not wear the red the failure does."""
+    failed = StubController(ready_entry())
+    failed.done = {NAME}
+    failed.snapshot = run_snapshot(FAILED, 0.4, finished=True, error="boom", finished_at=50.0)
+    failed_view = done_view(failed, [])
+    stopped_view = _stopped_view(qapp)
+    assert STOPPED_MARK_COLOUR != tokens.BAD
+    assert STOPPED_MARK_COLOUR == tokens.WARN
+    assert failed_view.icon.text() == "!"
+    assert stopped_view.icon.text() == STOPPED_MARK
