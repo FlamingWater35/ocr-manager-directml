@@ -18,9 +18,9 @@ signal as well as on `file_changed` / `files_changed`.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMenu, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QScrollArea, QVBoxLayout, QWidget
 
 from app.run_snapshot import FAILED, QUEUED, RUNNING
 from app.state_text import (
@@ -48,8 +48,8 @@ EMPTY_FILTER_TEXT = "No files match this filter."
 class QueueRow(QWidget):
     """One file (`.frow`)."""
 
-    clicked = pyqtSignal(str)
-    context_requested = pyqtSignal(str, QPoint)
+    clicked = Signal(str)
+    context_requested = Signal(str, QPoint)
 
     def __init__(self, name: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -114,9 +114,9 @@ class QueueRow(QWidget):
 
 
 class QueueView(QWidget):
-    selection_changed = pyqtSignal(object)      # str | None
-    proof_requested = pyqtSignal(str)
-    logs_requested = pyqtSignal(str)
+    selection_changed = Signal(object)      # str | None
+    proof_requested = Signal(str)
+    logs_requested = Signal(str)
 
     def __init__(self, controller, parent: QWidget | None = None):
         super().__init__(parent)

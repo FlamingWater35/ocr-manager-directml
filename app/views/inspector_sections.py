@@ -16,8 +16,8 @@ the controller: `Inspector` decides what to show and when.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, pyqtSignal
-from PyQt6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMessageBox, QVBoxLayout, QWidget
 
 from app.state_text import (
     brightness_caption,
@@ -158,7 +158,7 @@ class Section(QWidget):
 class DetectedRow(KvRow):
     """A Detected summary row; clicking it switches the stage tab."""
 
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, key: str, parent: QWidget | None = None):
         super().__init__(key, "—", parent=parent)
@@ -175,8 +175,8 @@ class DetectedSection(Section):
     # row key -> the stage tab it opens
     TAB_FOR_ROW = {"Crop": "Crop", "Brightness": "Brightness", "OCR window": "Time ranges"}
 
-    tab_requested = pyqtSignal(str)
-    redetect_requested = pyqtSignal()
+    tab_requested = Signal(str)
+    redetect_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -273,8 +273,8 @@ class ProofSection(Section):
     replaces this presentation, so a slow frame cannot make the button look
     like it did nothing."""
 
-    run_requested = pyqtSignal()
-    cancel_requested = pyqtSignal()
+    run_requested = Signal()
+    cancel_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -468,8 +468,8 @@ class ChangeOffer(Section):
 
     NOTE = "Corrections are never copied verbatim to other episodes. Instead the app offers:"
 
-    hint_requested = pyqtSignal(str)             # "crop" | "brightness"
-    dismissed = pyqtSignal()
+    hint_requested = Signal(str)             # "crop" | "brightness"
+    dismissed = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)

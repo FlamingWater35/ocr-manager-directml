@@ -18,9 +18,9 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
 from app.episode_feed import Line, LineFeed, format_ts
 from app.run_snapshot import CANCELLED, DONE, FAILED, RUNNING, RunFileRow, RunSnapshot
@@ -85,15 +85,15 @@ def _key(name: str, time_value: float) -> tuple:
 class StubController(QObject):
     """ProjectController's signals and the calls the episode views make."""
 
-    project_opened = pyqtSignal(str)
-    project_closed = pyqtSignal()
-    files_changed = pyqtSignal()
-    file_changed = pyqtSignal(str)
-    folder_changed = pyqtSignal()
-    activity_changed = pyqtSignal()
-    frame_ready = pyqtSignal(str, float)
-    run_changed = pyqtSignal()
-    run_subtitle = pyqtSignal(str, float, float, str)
+    project_opened = Signal(str)
+    project_closed = Signal()
+    files_changed = Signal()
+    file_changed = Signal(str)
+    folder_changed = Signal()
+    activity_changed = Signal()
+    frame_ready = Signal(str, float)
+    run_changed = Signal()
+    run_subtitle = Signal(str, float, float, str)
 
     def __init__(self, entry: FileEntry, folder: FolderSettings | None = None):
         super().__init__()
@@ -577,7 +577,7 @@ def test_the_hud_sits_under_the_picture_never_over_it(qapp):
 def test_the_push_in_grows_from_the_frames_bottom_edge(qapp):
     """Zooming in from the bottom keeps the burned-in subtitles where they
     are; only the top and the sides drift out of view."""
-    from PyQt6.QtCore import QRectF, QSize
+    from PySide6.QtCore import QRectF, QSize
     target = QRectF(0, 0, 1600, 900)
     still, pushed = pushed_rect(QSize(1920, 1080), target, 1.0), pushed_rect(QSize(1920, 1080), target, 1.06)
     assert pushed.bottom() == pytest.approx(still.bottom()) == pytest.approx(target.bottom())
@@ -743,8 +743,8 @@ def _mark_ink(view) -> tuple[int, int, int]:
     so the `tone_color` property still holds the value the label was built
     with -- reading it would silently measure the wrong colour.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QColor, QImage, QPainter
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QImage, QPainter
     cell = QImage(120, 120, QImage.Format.Format_RGB32)
     cell.fill(QColor("#000000"))
     painter = QPainter(cell)

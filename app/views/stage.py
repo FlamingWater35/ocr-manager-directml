@@ -33,8 +33,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
 from app.state_text import brightness_text, crop_text, ranges_text
 from app.theme import tokens
@@ -57,7 +57,7 @@ class StageTab(Protocol):
 
 
 class Stage(QWidget):
-    tab_changed = pyqtSignal(int)
+    tab_changed = Signal(int)
 
     def __init__(self, controller, tabs: list[StageTab], parent: QWidget | None = None):
         super().__init__(parent)

@@ -184,7 +184,7 @@ def test_smoke_line_renders_white_text_on_black(qapp):
 
 @pytest.fixture
 def qapp():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     return QApplication.instance() or QApplication([])
 
 

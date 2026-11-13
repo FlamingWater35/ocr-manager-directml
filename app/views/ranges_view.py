@@ -65,9 +65,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMenu, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QSizePolicy, QVBoxLayout, QWidget
 
 from app.masking import speech_in_skips
 from app.state_text import format_duration
@@ -350,8 +350,8 @@ class Timeline(QWidget):
     the tab it is mounted in. A compact click leaves as `seek_requested`,
     and `position()` remembers it (the marker drawn at it)."""
 
-    seek_requested = pyqtSignal(float)        # compact click: "the user pointed at t"
-    committed = pyqtSignal()                  # an edit reached the controller
+    seek_requested = Signal(float)        # compact click: "the user pointed at t"
+    committed = Signal()                  # an edit reached the controller
 
     def __init__(self, controller, mode: str = "edit", parent: QWidget | None = None):
         super().__init__(parent)
@@ -729,7 +729,7 @@ class Timeline(QWidget):
         painter.save()
         painter.setOpacity(WAVE_ALPHA)
         painter.setPen(QPen(QColor(tokens.WAVEFORM), 1))
-        painter.drawPolyline(*points)
+        painter.drawPolyline(QPolygonF(points))
         painter.restore()
 
     def _paint_span(self, painter: QPainter, rect: QRectF, span: Span) -> None:
@@ -915,7 +915,7 @@ def _block_detail(block: dict | None) -> str:
 class WarningRow(QWidget):
     """A warn-tinted `.kv`: the sentence, and "Extend keep →"."""
 
-    extend_requested = pyqtSignal()
+    extend_requested = Signal()
 
     def __init__(self, text: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -946,7 +946,7 @@ class WarningRow(QWidget):
 class KeepRow(KvRow):
     """"Keep" / "2:33 → 23:05", with a "✕" that drops the range."""
 
-    remove_requested = pyqtSignal()
+    remove_requested = Signal()
 
     def __init__(self, value: str, removable: bool = True, parent: QWidget | None = None):
         super().__init__(KEEP_KEY, value, parent=parent)
@@ -964,9 +964,9 @@ class RangesInspectorPanel(Section):
     No hint offer (ruling C3) and no scope header -- the inspector's own
     header already says "◆ this episode only"."""
 
-    add_requested = pyqtSignal()
-    whole_file_requested = pyqtSignal()
-    remove_requested = pyqtSignal(int)
+    add_requested = Signal()
+    whole_file_requested = Signal()
+    remove_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)

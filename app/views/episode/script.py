@@ -13,17 +13,17 @@ all at once.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     QAbstractListModel,
     QModelIndex,
     QRectF,
     QSize,
     Qt,
     QVariantAnimation,
-    pyqtSignal,
+    Signal,
 )
-from PyQt6.QtGui import QColor, QFontMetrics, QPainter
-from PyQt6.QtWidgets import (
+from PySide6.QtGui import QColor, QFontMetrics, QPainter
+from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QListView,
@@ -145,8 +145,8 @@ class ScriptDelegate(QStyledItemDelegate):
 
 
 class ScriptPanel(QWidget):
-    line_clicked = pyqtSignal(float, float, str)      # start, end, text
-    following_changed = pyqtSignal(bool)
+    line_clicked = Signal(float, float, str)      # start, end, text
+    following_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None, *, animated: bool = True, live: bool = True):
         """`live=False` is a finished script (the Done screen): no following,

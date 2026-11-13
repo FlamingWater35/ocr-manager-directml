@@ -217,7 +217,7 @@ def download_models(boot: Boot) -> int:
 # --------------------------------------------------------------------------
 
 def _cjk_family() -> str | None:
-    from PyQt6.QtGui import QFontDatabase
+    from PySide6.QtGui import QFontDatabase
 
     families = QFontDatabase.families(QFontDatabase.WritingSystem.SimplifiedChinese)
     for name in PREFERRED_CJK_FONTS:
@@ -230,8 +230,8 @@ def render_line(text: str | None = None):
     """(BGR numpy image, the text drawn, the font family) -- white text on
     black, drawn with Qt so any installed CJK font works."""
     import numpy as np
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
 
     global _smoke_app
     if QGuiApplication.instance() is None:
@@ -257,8 +257,10 @@ def render_line(text: str | None = None):
     painter.setPen(QColor("white"))
     painter.drawText(image.rect(), int(Qt.AlignmentFlag.AlignCenter), text)
     painter.end()
+    # shiboken hands back a memoryview that already spans the whole image
+    # (len(buffer) == image.sizeInBytes()), so unlike PyQt6's voidptr there is
+    # no size to declare before numpy can read it.
     buffer = image.constBits()
-    buffer.setsize(image.sizeInBytes())
     rgb = np.frombuffer(buffer, np.uint8).reshape(height, image.bytesPerLine())[:, :width * 3]
     rgb = rgb.reshape(height, width, 3)
     if rgb.any():

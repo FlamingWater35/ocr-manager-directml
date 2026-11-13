@@ -3,8 +3,8 @@ warnings, and folders that could not be opened or saved. No message boxes
 (design §10)."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.theme import tokens
 from app.widgets.base import Button, repolish

@@ -164,8 +164,8 @@ import traceback
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
-from PyQt6.QtGui import QImage
+from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtGui import QImage
 
 from app.activity import TERMINAL_EVENTS, ActivitySnapshot, ActivityTracker
 from app.folder_watch import FolderWatch
@@ -278,24 +278,24 @@ class ProjectController(QObject):
     # thumbnails are not.
     DETECTION_KINDS = DETECTION_KINDS
 
-    project_opened = pyqtSignal(str)            # folder path
-    project_closed = pyqtSignal()
-    files_changed = pyqtSignal()                # entries added/removed/reordered
-    file_changed = pyqtSignal(str)              # one entry's values/state/evidence/done changed
-    folder_changed = pyqtSignal()               # FolderSettings changed
-    activity_changed = pyqtSignal()             # running/queued jobs or auto-pilot holds changed
-    thumbnail_ready = pyqtSignal(str)
-    frame_ready = pyqtSignal(str, float)        # file, time: frame(file, time) now has pixels
-    strips_ready = pyqtSignal(str)              # file: strips of the requested crop box arrived
-    proof_started = pyqtSignal(str)
-    proof_finished = pyqtSignal(str)            # result in proof_result(file)
-    proof_progress = pyqtSignal(str)            # a running proof's fraction/phase changed (proof_progress(file))
-    run_changed = pyqtSignal()                  # run started/progress/finished/paused
-    run_subtitle = pyqtSignal(str, float, float, str)
-    log_appended = pyqtSignal(str, str)         # key ("Pipeline" or filename), text
-    logs_cleared = pyqtSignal()                 # logs restarted (a run start keeps "Detections"): re-read log_keys()
-    save_failed = pyqtSignal(str)               # message; the values stay in memory
-    project_saved = pyqtSignal()                # .ocr.json written: whatever save_failed said is over
+    project_opened = Signal(str)            # folder path
+    project_closed = Signal()
+    files_changed = Signal()                # entries added/removed/reordered
+    file_changed = Signal(str)              # one entry's values/state/evidence/done changed
+    folder_changed = Signal()               # FolderSettings changed
+    activity_changed = Signal()             # running/queued jobs or auto-pilot holds changed
+    thumbnail_ready = Signal(str)
+    frame_ready = Signal(str, float)        # file, time: frame(file, time) now has pixels
+    strips_ready = Signal(str)              # file: strips of the requested crop box arrived
+    proof_started = Signal(str)
+    proof_finished = Signal(str)            # result in proof_result(file)
+    proof_progress = Signal(str)            # a running proof's fraction/phase changed (proof_progress(file))
+    run_changed = Signal()                  # run started/progress/finished/paused
+    run_subtitle = Signal(str, float, float, str)
+    log_appended = Signal(str, str)         # key ("Pipeline" or filename), text
+    logs_cleared = Signal()                 # logs restarted (a run start keeps "Detections"): re-read log_keys()
+    save_failed = Signal(str)               # message; the values stay in memory
+    project_saved = Signal()                # .ocr.json written: whatever save_failed said is over
 
     def __init__(self, runner_factory: Callable[[Callable[[JobEvent], None]], JobRunner] = default_runner_factory,
                  parent: QObject | None = None, *, save_debounce_ms: int = 500, drain_interval_ms: int = 30,

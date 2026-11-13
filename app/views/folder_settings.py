@@ -43,9 +43,9 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QCompleter,
@@ -98,7 +98,7 @@ def scope_text(count: int, folder: str) -> str:
 # --------------------------------------------------------------------------
 
 class FolderSettingsSheet(QWidget):
-    closed = pyqtSignal()
+    closed = Signal()
 
     def __init__(self, controller, parent: QWidget | None = None, *, anchor: QWidget | None = None):
         super().__init__(parent)
@@ -266,7 +266,7 @@ class FolderSettingsSheet(QWidget):
         # ButtonSymbols.NoButtons AND any QSS border on the spin box, Qt lays
         # the internal QLineEdit out 1 px wide -- the value is in `text()` and
         # the widget looks like an empty box with a thin caret. Measured on
-        # PyQt6 6.10: border+NoButtons leaves the edit 1x21 px, while
+        # Qt 6.12: border+NoButtons leaves the edit 1x21 px, while
         # UpDownArrows with 0-width buttons leaves it 148 px wide. Same visual
         # result, value actually visible.
         spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)

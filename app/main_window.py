@@ -64,9 +64,9 @@ import logging
 import os
 from collections.abc import Callable
 
-from PyQt6.QtCore import QByteArray, Qt
-from PyQt6.QtGui import QAction, QGuiApplication, QKeySequence
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QByteArray, Qt
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
+from PySide6.QtWidgets import (
     QAbstractButton,
     QAbstractItemView,
     QAbstractSlider,

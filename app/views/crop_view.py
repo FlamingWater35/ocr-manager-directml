@@ -64,9 +64,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import cv2
-from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import (
+import shiboken6
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (
     QColor,
     QFontMetricsF,
     QImage,
@@ -75,7 +75,7 @@ from PyQt6.QtGui import (
     QPen,
     QRadialGradient,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QSizePolicy,
@@ -333,10 +333,10 @@ class CropCanvas(QWidget):
     TAG_PAD_X, TAG_PAD_Y = tokens.px(6), tokens.px(2)
     PLACEHOLDER_TEXT = "Loading frame…"
 
-    box_changed = pyqtSignal()
-    commit_requested = pyqtSignal(tuple)       # the box to store
-    nudged = pyqtSignal()                      # a key nudge: start the commit debounce
-    masks_changed = pyqtSignal(list)
+    box_changed = Signal()
+    commit_requested = Signal(tuple)       # the box to store
+    nudged = Signal()                      # a key nudge: start the commit debounce
+    masks_changed = Signal(list)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -920,7 +920,7 @@ class SampleThumbnail(QWidget):
     BAR_HEIGHT = tokens.px(3)
     BORDER = 1                     # the CSS box's 1 px border, on each side
 
-    clicked = pyqtSignal(int)
+    clicked = Signal(int)
 
     def __init__(self, width: int, height: int, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1028,8 +1028,8 @@ class SampleStrip(QWidget):
     THUMB_HEIGHT = tokens.px(36)
     LABEL_WIDTH = tokens.px(46)
 
-    selected = pyqtSignal(int)
-    stepped = pyqtSignal(int)
+    selected = Signal(int)
+    stepped = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1226,7 +1226,22 @@ class SampleStrip(QWidget):
 # --------------------------------------------------------------------------
 
 class _ClickableKvRow(KvRow):
-    clicked = pyqtSignal()
+    """An evidence row that opens the sample it describes.
+
+    The sample index lives on the row (`sample`), not in the lambda that was
+    connected to it: `_set_rows` reuses a row whenever the row ids are
+    unchanged, and a captured index would then still point at the sample the
+    row had when it was built. Connecting once at construction also means no
+    `clicked.disconnect()` on every refresh -- PySide6 warns
+    "Failed to disconnect (None)" when nothing is connected, which is what the
+    first refresh of every row hit.
+    """
+
+    clicked = Signal()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sample: int | None = None
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
@@ -1254,7 +1269,7 @@ class _SpinPair(QWidget):
 
     ORIGIN, SIZE = "origin", "size"
 
-    edited = pyqtSignal()
+    edited = Signal()
 
     def __init__(self, key: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1276,7 +1291,7 @@ class _SpinPair(QWidget):
             # The arrows are hidden with QSS, not with ButtonSymbols.NoButtons:
             # NoButtons plus any QSS border makes Qt lay the internal QLineEdit
             # out 1 px wide, so the value is present in text() but nothing is
-            # drawn (measured on PyQt6 6.10; see the same note in
+            # drawn (measured on Qt 6.12 through PySide6; see the same note in
             # folder_settings.py). UpDownArrows at width 0 keeps the edit full
             # width and looks identical.
             spin.setStyleSheet(
@@ -1349,9 +1364,9 @@ class CropInspectorPanel(Section):
     B4 drops the "◆ this episode only" header the tab-scoped mockup shows --
     the inspector's own header already says it."""
 
-    box_edited = pyqtSignal(tuple)
-    sample_requested = pyqtSignal(int)
-    apply_all = pyqtSignal()
+    box_edited = Signal(tuple)
+    sample_requested = Signal(int)
+    apply_all = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1465,7 +1480,11 @@ class CropInspectorPanel(Section):
             self._rows = []
             position = self.body.indexOf(self.evidence_header) + 1
             for offset, (_row_id, key, _value, _tone, index) in enumerate(rows):
-                row = _ClickableKvRow(key, "") if index is not None else KvRow(key, "")
+                if index is not None:
+                    row = _ClickableKvRow(key, "")
+                    row.clicked.connect(self._sample_clicked)
+                else:
+                    row = KvRow(key, "")
                 self.body.insertWidget(position + offset, row)
                 self._rows.append(row)
             self._row_ids = ids
@@ -1475,12 +1494,14 @@ class CropInspectorPanel(Section):
             row.set_value(value, tone)
             if isinstance(row, _ClickableKvRow):
                 self._rows_by_sample[index] = row
+                row.sample = index
                 row.setCursor(Qt.CursorShape.PointingHandCursor)
-                try:
-                    row.clicked.disconnect()
-                except TypeError:
-                    pass
-                row.clicked.connect(lambda sample=index: self.sample_requested.emit(sample))
+
+    def _sample_clicked(self) -> None:
+        """One row's click: its `sample` is read now, not when it was built."""
+        row = self.sender()
+        if isinstance(row, _ClickableKvRow) and row.sample is not None:
+            self.sample_requested.emit(row.sample)
 
     def flush(self) -> None:
         """Commit a typed value now instead of when the debounce ends -- the
@@ -1521,7 +1542,7 @@ class _CropPage(QWidget):
         super().showEvent(event)
         window = self.window()
         if window is not self._watched:
-            if self._watched is not None and not sip.isdeleted(self._watched):
+            if self._watched is not None and shiboken6.isValid(self._watched):
                 self._watched.removeEventFilter(self)
             self._watched = window
             window.installEventFilter(self)
@@ -1881,7 +1902,7 @@ class CropTab:
         `CropTab` is not a QObject, so Qt cannot disconnect this for us when
         the widgets go; the deleted check is what a QWidget view gets for
         free."""
-        if name == self._file and not sip.isdeleted(self._page):
+        if name == self._file and shiboken6.isValid(self._page):
             self._frames_timer.start()
 
     def _thumbnail(self, time: float) -> QImage | None:

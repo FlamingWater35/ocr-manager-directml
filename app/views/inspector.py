@@ -31,8 +31,8 @@ see, and a proof must not go stale because of it.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from app.state_text import (
     PROOF_WAIT_TOOLTIP,
@@ -76,7 +76,7 @@ def _proof_key(entry) -> tuple:
 
 
 class Inspector(QWidget):
-    tab_requested = pyqtSignal(str)             # a stage tab title
+    tab_requested = Signal(str)             # a stage tab title
 
     def __init__(self, controller, stage, parent: QWidget | None = None):
         super().__init__(parent)

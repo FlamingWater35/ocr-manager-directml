@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections import OrderedDict
 
 import numpy as np
-from PyQt6.QtGui import QImage
+from PySide6.QtGui import QImage
 
 # ~70 frames of 1280x720 BGR (2.8 MB each), on top of whatever the OCR engine is
 # holding. A crop view shows one canvas frame and about a dozen filmstrip

@@ -6,7 +6,7 @@ if you break them, and the ones that are not are still load-bearing.
 
 ## What this is
 
-**OCR Manager** is a Windows desktop app (PyQt6) that reads hardsubbed
+**OCR Manager** is a Windows desktop app (PySide6) that reads hardsubbed
 subtitles out of video and writes timed `.ass` files. It decodes with a
 bundled `ffmpeg` subprocess, OCRs with **RapidOCR** on **ONNX Runtime
 DirectML**, and detects per-folder crop boxes, brightness thresholds and keep
@@ -83,7 +83,7 @@ compile fails with `C1034: windows.h: no include path set`. The bundle half
 ## Layout
 
 ```
-app/            the PyQt6 window — the only layer that may import Qt
+app/            the PySide6 window — the only layer that may import Qt
   __main__.py     argument parsing, boot(), then MainWindow
   bootstrap.py    boot order: bundle → console/log redirect → logging → data dir
   cli.py          --self-test / --ocr-smoke / --download-models
@@ -121,7 +121,7 @@ test as the specification and read it before you work around it.
   → `test_detect_jobs.py::test_job_modules_import_no_qt`,
   `test_view_jobs.py::test_view_jobs_import_no_qt`, plus the same check in
   `test_run_job.py`, `test_view_cache.py`, `test_autopilot.py`
-- **`core/project` imports no PyQt6** at all, by design — it is the shared
+- **`core/project` imports no Qt** at all, by design — it is the shared
   model.
 - **`ProjectController` is the only code that mutates the model**, and it does
   so on the GUI thread. Views read through it and call its commands; job events
@@ -162,8 +162,13 @@ test as the specification and read it before you work around it.
   precisely because auto-crop silently found nothing once.
 - **Errors that the user must see go in the UI banner** (`app/engine.py`
   returns `(title, body)` tuples); everything else is logged. Never let a
-  failed apply or a missing tool raise into a Qt slot — PyQt6 aborts the
-  process, which is why `app/__main__.py` installs an `sys.excepthook`.
+  failed apply or a missing tool raise into a Qt slot — PySide6 routes an
+  unhandled slot exception through `sys.excepthook` and keeps running, and the
+  default hook writes to a stderr a windowed build does not have, which is why
+  `app/__main__.py` installs its own (`report_unexpected_error`: the Pipeline
+  log and a banner). `QTest.qWait` is the one pump that re-raises instead of
+  calling the hook, so a test that exercises this must use
+  `QApplication.processEvents()`.
 - **Commit messages** follow the template in "Commit messages" below:
   `type(scope): summary`, then a body that opens with the measurement that
   motivated the change. `app/version.py` is the single source of the version,

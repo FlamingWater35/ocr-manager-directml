@@ -1,8 +1,8 @@
-"""Fixtures for tests/ui (the new PyQt6 window under `app/`).
+"""Fixtures for tests/ui (the PySide6 window under `app/`).
 
 pytest-qt is NOT installed (task brief) -- this file provides the one
 fixture it would otherwise give us (a session-scoped QApplication), and
-tests drive widgets directly with PyQt6.QtTest.QTest instead of pytest-qt's
+tests drive widgets directly with PySide6.QtTest.QTest instead of pytest-qt's
 `qtbot`. tests/conftest.py's autouse `_reset_engine_registry` fixture still
 applies here (pytest collects parent conftests for a subdirectory), which
 is harmless: nothing under tests/ui touches the OCR engine registry.
@@ -24,9 +24,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from PyQt6 import sip
-from PyQt6.QtCore import QEvent
-from PyQt6.QtWidgets import QApplication
+import shiboken6
+from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QApplication
 
 from core.jobs.runner import JobEvent, Lane
 
@@ -78,12 +78,12 @@ def _delete_leaked_top_level_widgets():
     Only widgets created during the test are deleted, never ones that
     existed before it."""
     app = QApplication.instance()
-    before = {sip.unwrapinstance(w) for w in app.topLevelWidgets()} if app is not None else set()
+    before = {shiboken6.getCppPointer(w) for w in app.topLevelWidgets()} if app is not None else set()
     yield
     app = QApplication.instance()
     if app is None:
         return
-    leaked = [w for w in app.topLevelWidgets() if sip.unwrapinstance(w) not in before]
+    leaked = [w for w in app.topLevelWidgets() if shiboken6.getCppPointer(w) not in before]
     for widget in leaked:
         widget.hide()
         widget.deleteLater()

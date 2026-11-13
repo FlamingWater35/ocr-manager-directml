@@ -17,11 +17,11 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 
-from PyQt6.QtCore import QFileSystemWatcher, QObject, QTimer, pyqtSignal
+from PySide6.QtCore import QFileSystemWatcher, QObject, QTimer, Signal
 
 
 class FolderWatch(QObject):
-    settled = pyqtSignal()
+    settled = Signal()
 
     def __init__(self, debounce_ms: int = 300, parent: QObject | None = None):
         super().__init__(parent)

@@ -39,8 +39,8 @@ episode whose only unfinished item is the speech profile can already start.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from app.episode_feed import estimate_words
 from app.imaging import bgr_to_qimage
@@ -220,8 +220,8 @@ class CheckItem(QWidget):
 
 
 class PrepareView(QWidget):
-    review_requested = pyqtSignal()
-    start_requested = pyqtSignal()
+    review_requested = Signal()
+    start_requested = Signal()
 
     def __init__(self, controller, parent: QWidget | None = None):
         super().__init__(parent)

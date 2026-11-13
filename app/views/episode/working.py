@@ -43,9 +43,9 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from PyQt6.QtCore import QRectF, Qt, QTimer, QVariantAnimation
-from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
-from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QRectF, Qt, QTimer, QVariantAnimation
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from app.episode_feed import (
     EtaEstimator,

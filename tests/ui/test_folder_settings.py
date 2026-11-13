@@ -14,10 +14,10 @@ import dataclasses
 import time
 
 import pytest
-from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QWheelEvent
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QDoubleSpinBox, QSpinBox
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QDoubleSpinBox, QSpinBox
 
 from ui import editor_geometry
 from app.controller import ProjectController

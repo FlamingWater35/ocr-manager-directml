@@ -23,10 +23,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QFont, QFontMetrics, QWheelEvent
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QFont, QFontMetrics, QWheelEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
 from app.controller import ProjectController
 from app.masking import StripPixels

@@ -4,7 +4,7 @@ Tokens are checked against ui-spec.md §2.1's hex values verbatim (the
 digest confirms the two hi-fi mockups define byte-for-byte identical
 tokens). Widgets are constructed offscreen (QT_QPA_PLATFORM=offscreen) and
 checked for the dynamic properties app/theme/qss.py selects on -- pytest-qt
-is not installed, so click behaviour uses PyQt6.QtTest.QTest directly (see
+is not installed, so click behaviour uses PySide6.QtTest.QTest directly (see
 tests/ui/conftest.py).
 """
 import contextlib
@@ -14,9 +14,9 @@ import re
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import Qt
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget
 
 import app
 from ui import editor_geometry
@@ -197,7 +197,7 @@ def test_stylesheet_is_nonempty_and_has_no_obvious_placeholder():
 
 
 def test_apply_theme_sets_stylesheet_palette_and_font(qapp):
-    from PyQt6.QtGui import QPalette
+    from PySide6.QtGui import QPalette
 
     qss.apply_theme(qapp)
     assert qapp.styleSheet() == qss.build_stylesheet()
@@ -795,7 +795,7 @@ def test_a_spin_box_with_hidden_buttons_still_paints_its_value(qapp):
     `ButtonSymbols.NoButtons` combined with any QSS `border` on a
     `QAbstractSpinBox` makes Qt lay the internal `QLineEdit` out **1 px wide**:
     `text()` still returns the value, the box keeps its size, and nothing is
-    painted -- a rounded empty box with a thin caret. Measured on PyQt6 6.10
+    painted -- a rounded empty box with a thin caret. Measured on Qt 6.12
     under this theme: NoButtons leaves the edit 1 px and zero text pixels,
     UpDownArrows (with the arrows hidden by a 0-width `::up-button`) leaves it
     131 px.

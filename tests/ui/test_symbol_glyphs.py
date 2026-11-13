@@ -19,8 +19,8 @@ font ignores the pen and does.
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QImage, QPainter
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFont, QImage, QPainter
 
 from app.theme import tokens
 

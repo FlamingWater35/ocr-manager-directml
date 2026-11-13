@@ -15,7 +15,7 @@
   <p align="center">
     <img src="https://img.shields.io/badge/Python-3.11%20|%203.12-blue" alt="Python Version">
     <img src="https://img.shields.io/badge/Platform-Windows%20x64-lightgrey" alt="Platform">
-    <img src="https://img.shields.io/badge/GUI-PyQt6-41CD52" alt="PyQt6 GUI">
+    <img src="https://img.shields.io/badge/GUI-PySide6-41CD52" alt="PySide6 GUI">
     <img src="https://img.shields.io/badge/OCR-RapidOCR%20%2B%20DirectML-orange" alt="OCR backend">
     <img src="https://img.shields.io/badge/Status-Active-success" alt="Status">
   </p>
@@ -58,7 +58,7 @@
 
 OCR Manager reads hardcoded (burned-in) subtitles out of video and writes timed `.ass` files. It is built for **seasons**, not single files: open a folder of episodes and it detects each file's crop box, brightness threshold and intro/outro ranges on its own, then OCRs only the frames that carry text.
 
-- **Windows x64, self-contained**: PyQt6 desktop app with a bundled ffmpeg, bundled OCR engine and bundled PP-OCRv6 models. Nothing is installed on first run, and no CUDA toolkit, NVIDIA driver build or `nvidia-smi` is involved anywhere.
+- **Windows x64, self-contained**: PySide6 desktop app with a bundled ffmpeg, bundled OCR engine and bundled PP-OCRv6 models. Nothing is installed on first run, and no CUDA toolkit, NVIDIA driver build or `nvidia-smi` is involved anywhere.
 - **DirectML acceleration**: RapidOCR runs the PP-OCRv6 detection, classification and recognition models on ONNX Runtime's `DmlExecutionProvider`, so any DirectX 12 adapter (NVIDIA, AMD or Intel) does the work. Without one it falls back to the CPU and still works.
 - **Auto-pilot detection**: crop box (speech-guided, union-of-frames rather than tightest-frame), brightness threshold (dark scene / bright background / thin strokes / two lines / subtitle line), keep ranges (intro+outro matched across episodes by audio), and subtitle-line sampling — all per folder, all re-runnable per file with **↻ Re-detect**.
 - **Positioned labels**: detects text *outside* the dialogue crop (name cards, place names, on-screen captions) and writes them as positioned `.ass` events, with `ass-qafix` post-processing.

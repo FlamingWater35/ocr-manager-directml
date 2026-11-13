@@ -98,8 +98,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-from PyQt6.QtCore import QPointF, QRect, QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import (
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import (
     QColor,
     QFont,
     QImage,
@@ -107,8 +107,9 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPolygonF,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -862,8 +863,8 @@ class ThresholdCurve(QWidget):
     last showed -- not one re-read from where the button came up.
     """
 
-    previewed = pyqtSignal(int)
-    released = pyqtSignal()
+    previewed = Signal(int)
+    released = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -985,7 +986,10 @@ class ThresholdCurve(QWidget):
             gradient.setColorAt(1.0, _alpha(tokens.OK, 0.0))
             painter.fillPath(area, gradient)
             painter.setPen(QPen(QColor(tokens.OK), CURVE_WIDTH))
-            painter.drawPolyline(*line)
+            # PySide6 takes a QPolygonF (or a plain sequence) where PyQt6 also
+            # accepted the points splatted: drawPolyline(*points) raises
+            # "takes exactly one argument" here.
+            painter.drawPolyline(QPolygonF(line))
 
         clutter = self._polyline(self._clutter)
         if len(clutter) > 1:
@@ -993,7 +997,7 @@ class ThresholdCurve(QWidget):
             pen.setStyle(Qt.PenStyle.DashLine)
             pen.setDashPattern([4, 3])
             painter.setPen(pen)
-            painter.drawPolyline(*clutter)
+            painter.drawPolyline(QPolygonF(clutter))
 
         auto_x, value_x = self.marker_x()
         if auto_x is not None:
@@ -1117,8 +1121,8 @@ class BrightnessInspectorPanel(QWidget):
     the note, and "use {auto}". A curve drag writes "yours" itself, on
     release, so there is no button to keep it."""
 
-    use_auto = pyqtSignal()
-    apply_all = pyqtSignal()
+    use_auto = Signal()
+    apply_all = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)

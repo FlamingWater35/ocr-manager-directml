@@ -70,7 +70,7 @@ def _fonts_for_the_offscreen_platform():
     """Give Qt the system's fonts before the QApplication exists.
 
     The offscreen platform plugin resolves fonts through Qt's own bundled
-    font directory, and the PyQt6 wheel ships it empty ("QFontDatabase:
+    font directory, and the PySide6 wheel ships it empty ("QFontDatabase:
     Cannot find font directory .../Qt6/lib/fonts. Note that Qt no longer
     ships fonts."). With no families at all, every `QFontMetrics` answer is a
     fallback's: 40 characters measured 480 px here against 280 px with real

@@ -3,9 +3,9 @@ and the Task 1 brief's caption rules). Table-driven: every B10 row and
 every caption branch (including the narrow-plateau prefix and IMPORTED/
 MANUAL text) gets its own case.
 
-No PyQt6 import anywhere: verified in a subprocess (test_state_text_module_
+No Qt import anywhere: verified in a subprocess (test_state_text_module_
 imports_no_qt below) rather than by asserting on this test process's own
-sys.modules, since PyQt6 is already imported here by the time this file's
+sys.modules, since Qt is already imported here by the time this file's
 other tests run (conftest.py's qapp fixture, and tests/ui/test_theme_
 widgets.py earlier in the session) -- only a fresh interpreter can prove
 `import app.state_text` alone never pulls it in.
@@ -667,13 +667,15 @@ def test_format_duration(seconds, expected):
 
 
 # --------------------------------------------------------------------------
-# No PyQt6 import
+# No Qt import
 # --------------------------------------------------------------------------
 
 def test_state_text_module_imports_no_qt():
     result = subprocess.run(
         [sys.executable, "-c",
-         "import sys\nimport app.state_text\nassert 'PyQt6' not in sys.modules"],
+         "import sys\nimport app.state_text\n"
+         "assert not [m for m in sys.modules "
+         "if m.split('.')[0] in ('PySide6', 'PyQt6', 'PyQt5')]"],
         cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"

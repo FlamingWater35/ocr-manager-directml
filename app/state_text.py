@@ -1,5 +1,5 @@
 """Pure, Qt-free badge and caption text for the review queue and inspector
-(ruling B10; caption rules from Task 1's brief). No PyQt6 import belongs
+(ruling B10; caption rules from Task 1's brief). No Qt import belongs
 anywhere in this module -- see tests/ui/test_state_text.py's subprocess
 import check -- so the window's Qt layer can format review-queue text
 without pulling Qt into, say, a headless job runner that also wants it.

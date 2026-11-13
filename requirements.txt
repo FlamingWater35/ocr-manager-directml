@@ -3,7 +3,7 @@
 # models on ONNX Runtime, and onnxruntime-directml puts them on any DirectX 12
 # graphics adapter (NVIDIA, AMD, Intel) with an automatic CPU fallback, so no
 # CUDA toolkit, driver build or nvidia-smi is involved anywhere.
-PyQt6>=6.10.0
+PySide6>=6.12.0
 opencv-python-headless>=4.10.0
 numpy>=2.0.0
 scipy>=1.14.0

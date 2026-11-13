@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QWidget
 
 from app.theme import tokens
 

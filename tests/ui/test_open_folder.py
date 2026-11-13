@@ -13,10 +13,10 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
-from PyQt6.QtGui import QEnterEvent
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
+from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
+from PySide6.QtGui import QEnterEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from app.recents import EPISODE, FOLDER
 from app.views import open_folder as open_folder_module

@@ -7,7 +7,16 @@
 # DmlExecutionProvider (any DX12 GPU: NVIDIA, AMD, Intel) and still runs on the
 # CPU where DirectML is unavailable. The wheel bundles DirectML.dll (18.5 MB)
 # and needs no CUDA toolkit, no driver build and no nvidia-smi.
-PyQt6==6.10.2
+# PySide6-Essentials, not PySide6: the meta package also drags in Addons
+# (40 MB), WebEngine (131 MB) and Pdf, none of which the app can reach --
+# it imports QtCore, QtGui and QtWidgets. Essentials ships the PySide6
+# package itself (PySide6/__init__.py is in its RECORD), so `import PySide6`
+# works with only this installed: verified by stripping a real tree down to
+# Essentials plus shiboken6 (177 modules removed, no Addons, Pdf or WebEngine
+# left) and building a window from it. packaging/build.py's prune_qt() still
+# runs over the tree afterwards and takes the 90% of Essentials the app never
+# loads.
+PySide6-Essentials==6.12.0
 numpy==2.4.1
 scipy==1.17.0
 opencv-python-headless==4.10.0.84

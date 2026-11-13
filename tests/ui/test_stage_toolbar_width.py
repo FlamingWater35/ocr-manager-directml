@@ -17,8 +17,8 @@ shown before it.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QObject
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtCore import QEvent, QObject
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from app.views.stage import Stage
 

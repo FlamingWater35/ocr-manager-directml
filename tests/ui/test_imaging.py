@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from PyQt6.QtGui import QImage
+from PySide6.QtGui import QImage
 
 from app.imaging import FrameCache, bgr_to_qimage
 

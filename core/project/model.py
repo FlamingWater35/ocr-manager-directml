@@ -1,6 +1,6 @@
 """Qt-free per-project domain model for OCR Manager.
 
-This module has no PyQt6 dependency by design: it is the shared model used
+This module has no Qt dependency by design: it is the shared model used
 by the pipeline, the store (`core/project/store.py`), migration
 (`core/project/migrate.py`) and, eventually, the Stage 3 window.
 

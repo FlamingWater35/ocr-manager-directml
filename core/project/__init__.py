@@ -1,6 +1,6 @@
 """Qt-free per-project domain model, JSON store and v1 migration.
 
-No PyQt6 import belongs anywhere under this package -- it is the shared
+No Qt import belongs anywhere under this package -- it is the shared
 model used by the pipeline, the store, migration and the Stage 3 window.
 Where a project's files live (a folder's, or one episode's under the cache
 root) is core.project.layout's; the cache root's own bookkeeping is

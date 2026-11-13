@@ -8,9 +8,9 @@ actual views; nothing here knows about `core.project`/`core.jobs`.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QRectF, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QAbstractButton, QBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QAbstractButton, QBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from app.theme import tokens
 
@@ -257,7 +257,7 @@ class SegmentedControl(QWidget):
     here, by `tokens.UI_SCALE` (the Folder settings nav, workbench-hifi
     figure 3: `.seg` with `flex-direction:column; gap:2px`)."""
 
-    current_changed = pyqtSignal(int)
+    current_changed = Signal(int)
 
     def __init__(self, items: list[str], parent: QWidget | None = None, *,
                  orientation: Qt.Orientation = Qt.Orientation.Horizontal):

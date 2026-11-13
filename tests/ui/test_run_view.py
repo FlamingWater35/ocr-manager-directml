@@ -15,9 +15,9 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import Qt
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 
 from app.controller import ProjectController
 from app.logbook import LOG_LIMIT
@@ -660,7 +660,7 @@ def _qprocess_can_start() -> bool:
     about a capability the sandbox removed, not about the meter. A real
     desktop (and the release build's own smoke test) has it.
     """
-    from PyQt6.QtCore import QCoreApplication, QProcess
+    from PySide6.QtCore import QCoreApplication, QProcess
 
     app = QCoreApplication.instance()
     process = QProcess()
@@ -926,7 +926,7 @@ def test_a_finished_run_does_not_guard_the_folder(window, fake_runner, tmp_proje
 
 @pytest.mark.parametrize("reply, accepted", [(No, False), (Yes, True)])
 def test_quitting_during_a_run_asks_first(window, fake_runner, monkeypatch, reply, accepted):
-    from PyQt6.QtGui import QCloseEvent
+    from PySide6.QtGui import QCloseEvent
 
     from app.main_window import RUN_QUIT_TEXT, RUN_STOP_TITLE
 

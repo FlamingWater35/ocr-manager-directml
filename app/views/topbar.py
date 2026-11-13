@@ -34,8 +34,8 @@ from __future__ import annotations
 import os
 import time
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from app.run_snapshot import run_status_text
 from app.theme import tokens
@@ -71,7 +71,7 @@ def rerun_text(count: int) -> str:
 class _ProjectBlock(QWidget):
     """Project name + "| path"; clicking it opens another folder."""
 
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -97,11 +97,11 @@ class _ProjectBlock(QWidget):
 
 
 class TopBar(QWidget):
-    folder_settings_requested = pyqtSignal()
-    logs_requested = pyqtSignal()
-    start_requested = pyqtSignal()
-    open_requested = pyqtSignal()
-    mode_changed = pyqtSignal(int)          # 0 Review, 1 Run
+    folder_settings_requested = Signal()
+    logs_requested = Signal()
+    start_requested = Signal()
+    open_requested = Signal()
+    mode_changed = Signal(int)          # 0 Review, 1 Run
 
     def __init__(self, controller, parent: QWidget | None = None):
         super().__init__(parent)

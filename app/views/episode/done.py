@@ -22,9 +22,9 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from app.episode_feed import Line, duration_words, format_ts, mid_time
 from app.imaging import bgr_to_qimage
@@ -74,9 +74,9 @@ def lines_words(count: int) -> str:
 
 
 class DoneView(QWidget):
-    review_requested = pyqtSignal()
-    open_another_requested = pyqtSignal()
-    retry_requested = pyqtSignal()
+    review_requested = Signal()
+    open_another_requested = Signal()
+    retry_requested = Signal()
 
     def __init__(self, controller, parent: QWidget | None = None, *,
                  open_url: Callable[[QUrl], object] | None = None, animated: bool = True):

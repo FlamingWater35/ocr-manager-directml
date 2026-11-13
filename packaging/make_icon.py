@@ -14,8 +14,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QImage, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QImage, QPainter, QPainterPath, QPen
 
 OUT = Path(__file__).resolve().parent.parent / "resources" / "app-icon.png"
 SIZE = 1024

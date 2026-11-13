@@ -86,7 +86,7 @@ OCR_MODELS = [
      "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b"),
 ]
 
-# The MSVC runtime the bundled wheels (onnxruntime, PyQt6, OpenCV, scipy) link
+# The MSVC runtime the bundled wheels (onnxruntime, PySide6, OpenCV, scipy) link
 # against, shipped app-local next to python.exe so no VC++ redistributable
 # install is needed.
 MSVC_RUNTIME = ("msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll",
@@ -230,43 +230,108 @@ def install_dependencies(root: Path, os_name: str) -> None:
                 shutil.copy2(system32 / dll, root / "python" / dll)
 
 
-# Qt modules the app never loads (it uses QtCore, QtGui and QtWidgets; the
-# platform plugins need DBus, OpenGL, Network, Svg, Wayland and XcbQpa, which
-# stay). The PyQt6-Qt6 wheel ships all of Qt, ~120 MB of it unused.
-QT_UNUSED = ("3D", "Bluetooth", "Charts", "DataVisualization", "Designer", "FFmpegStub", "Graphs", "Help",
-             "Labs", "Lottie", "Multimedia", "Nfc", "Pdf", "Positioning", "Qml", "Quick",
-             "RemoteObjects", "Scxml", "Sensors", "SerialPort", "ShaderTools", "SpatialAudio",
-             "Sql", "StateMachine", "Test", "TextToSpeech", "VirtualKeyboard", "WebChannel",
-             "WebSockets", "WebView")
-QT_UNUSED_DIRS = ("qml", "qsci")
-QT_UNUSED_PLUGINS = ("assetimporters", "designer", "geometryloaders", "help", "multimedia",
-                     "position", "qmllint", "qmlls", "qmltooling", "renderers", "renderplugins",
-                     "sceneparsers", "scxmldatamodel", "sensors", "sqldrivers", "texttospeech",
-                     "webview")
+# Qt modules the app never loads. It uses QtCore, QtGui and QtWidgets; the
+# Windows platform plugin resolves to exactly those three (dumpbin on
+# qwindows.dll / qmodernwindowsstyle.dll shows no other Qt dependency), so the
+# rest of the wheel is dead weight. PySide6-Essentials ships all of Qt anyway
+# -- 647 MB in site-packages, of which Qt6WebEngineCore.dll alone is 194 MB --
+# and every name below is matched as a PREFIX of the module name, so "Quick"
+# also takes Quick3D and QuickControls2.
+#
+# Kept on purpose, and why: Svg/SvgWidgets because the icon engine and the
+# imageformats plugin link Qt6Svg (qsvgicon.dll, qsvg.dll), Network and
+# OpenGL because Qt can load them lazily from a platform plugin, Xml and
+# Concurrent because QtWidgets' own .pyd imports them. Anything not listed
+# here stays.
+QT_UNUSED = ("3D", "AxContainer", "Bluetooth", "CanvasPainter", "Charts", "DataVisualization",
+             "Designer", "Graphs", "Help", "HttpServer", "Labs", "Location", "Lottie",
+             "Multimedia", "NetworkAuth", "Nfc", "Pdf", "Positioning", "Qml", "Quick",
+             "RemoteObjects", "Scxml", "Sensors", "SerialBus", "SerialPort", "ShaderTools",
+             "SpatialAudio", "Sql", "StateMachine", "Test", "TextToSpeech", "UiTools",
+             "VirtualKeyboard", "WebChannel", "WebEngine", "WebSockets", "WebView")
+
+# Directories under site-packages/PySide6 that only a build, a designer session
+# or a QML app reads. `qml` is 20 MB of QML types, `translations` 59 MB of Qt's
+# own .qm files (the app installs no QTranslator, so they could never load),
+# and `metatypes`/`typesystems`/`glue` are shiboken build inputs.
+QT_UNUSED_DIRS = ("doc", "glue", "include", "lib", "metatypes", "qml", "scripts", "support",
+                  "translations", "typesystems", "qsci")
+
+# The designer/linguist/QML toolchain, which ships as loose .exes next to the
+# libraries. QtWebEngineProcess.exe belongs to the WebEngine we just removed.
+QT_UNUSED_EXES = ("assistant.exe", "balsam.exe", "balsamui.exe", "designer.exe", "linguist.exe",
+                  "lrelease.exe", "lupdate.exe", "qmlcachegen.exe", "qmlformat.exe",
+                  "qmlimportscanner.exe", "qmllint.exe", "qmlls.exe", "qmltyperegistrar.exe",
+                  "qsb.exe", "QtWebEngineProcess.exe", "rcc.exe", "svgtoqml.exe", "uic.exe")
+
+QT_UNUSED_PLUGINS = ("assetimporters", "canbus", "designer", "geometryloaders", "geoservices",
+                     "help", "multimedia", "position", "qmltooling", "renderers",
+                     "renderplugins", "sceneparsers", "scxmldatamodel", "sensors", "sqldrivers",
+                     "texttospeech", "webview")
+
+# One entry name, one module name: "Qt6Widgets.dll" and "QtWidgets.pyd" are both
+# module "Widgets", which is what QT_UNUSED is written against.
+_QT_MODULE = re.compile(r"^Qt6?([A-Za-z0-9_]+)\.(?:dll|pyd)$")
+
+
+def qt_module(name: str) -> str | None:
+    """The Qt module an entry provides, or None for anything else."""
+    match = _QT_MODULE.match(name)
+    return match.group(1) if match else None
 
 
 def prune_qt(root: Path, os_name: str) -> None:
+    """Drop the Qt the app cannot reach, and refuse to guess if the layout moved.
+
+    PySide6 lays everything out flat (Qt6*.dll, Qt*.pyd, plugins/ and the tool
+    .exes all in site-packages/PySide6), unlike PyQt6's PyQt6/Qt6/ nesting, so
+    this walks one directory. If the three modules the app actually imports do
+    not survive, that is a build failure rather than a quiet half-Qt bundle.
+    """
     lib = root / "python" / ("Lib" if os_name == "win" else f"lib/python{PYTHON.rsplit('.', 1)[0]}")
-    pyqt = lib / "site-packages" / "PyQt6"
-    unused = re.compile(r"^(?:lib)?Qt6?(?:%s)" % "|".join(QT_UNUSED))
+    pyside = lib / "site-packages" / "PySide6"
+    if not pyside.is_dir():
+        raise CommandFailed(f"PySide6 is not in the bundle: {pyside} does not exist")
+    unused = re.compile(r"^(?:%s)" % "|".join(QT_UNUSED))
     # Qt Multimedia's own FFmpeg libraries: the app decodes with bin/ffmpeg.exe.
-    qt_ffmpeg = re.compile(r"^(?:lib)?(?:avcodec|avformat|avutil|swresample|swscale)[-.]")
+    qt_ffmpeg = re.compile(r"^(?:avcodec|avformat|avutil|swresample|swscale)[-.]")
     removed = 0
-    for entry in pyqt.iterdir():
-        if entry.name.startswith("Qt") and unused.match(entry.name):
-            entry.unlink()
-            removed += 1
-    qt = pyqt / "Qt6"
-    for sub in ("lib", "bin"):
-        for entry in (qt / sub).iterdir() if (qt / sub).is_dir() else ():
-            if unused.match(entry.name) or qt_ffmpeg.match(entry.name):
-                shutil.rmtree(entry) if entry.is_dir() and not entry.is_symlink() else entry.unlink()
+    for entry in pyside.iterdir():
+        module = qt_module(entry.name)
+        if entry.is_file():
+            if (module and unused.match(module)) or qt_ffmpeg.match(entry.name):
+                entry.unlink()
                 removed += 1
-    for name in QT_UNUSED_DIRS:
-        shutil.rmtree(qt / name, ignore_errors=True)
+            elif entry.name == "opengl32sw.dll":
+                # Mesa's software rasteriser: the app draws with QPainter and
+                # never asks for OpenGL.
+                entry.unlink()
+                removed += 1
+        elif entry.is_dir() and entry.name in QT_UNUSED_DIRS:
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+    for name in QT_UNUSED_EXES:
+        target = pyside / name
+        if target.exists():
+            target.unlink()
+            removed += 1
     for name in QT_UNUSED_PLUGINS:
-        shutil.rmtree(qt / "plugins" / name, ignore_errors=True)
-    log(f"pruned {removed} unused Qt modules and libraries")
+        shutil.rmtree(pyside / "plugins" / name, ignore_errors=True)
+    # WebEngine's runtime resources live in resources/, not next to the DLL.
+    for name in ("qtwebengine_devtools_resources.debug.pak", "qtwebengine_devtools_resources.pak",
+                 "qtwebengine_resources.debug.pak", "qtwebengine_resources.pak",
+                 "qtwebengine_resources_100p.debug.pak", "qtwebengine_resources_100p.pak",
+                 "qtwebengine_resources_200p.debug.pak", "qtwebengine_resources_200p.pak",
+                 "icudtl.dat", "v8_context_snapshot.bin", "v8_context_snapshot.debug.bin"):
+        target = pyside / "resources" / name
+        if target.exists():
+            target.unlink()
+            removed += 1
+    for required in ("Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll",
+                     "QtCore.pyd", "QtGui.pyd", "QtWidgets.pyd"):
+        if not (pyside / required).exists():
+            raise CommandFailed(f"pruning Qt removed {required}, which the app imports")
+    log(f"pruned {removed} unused Qt modules, plugins and tools")
 
 
 def copy_sources(root: Path) -> None:

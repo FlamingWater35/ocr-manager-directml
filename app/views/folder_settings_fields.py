@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
 
 from app.theme import tokens
 from app.widgets.base import ElidedLabel, SectionHeader

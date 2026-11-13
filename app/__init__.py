@@ -1,4 +1,4 @@
-"""OCR Manager's new PyQt6 window (plan 3B).
+"""OCR Manager's PySide6 window (plan 3B).
 
 This package is the only Qt layer of the revamp: everything under
 `core/` (`core/project/`, `core/jobs/`, `core/detect/`) stays Qt-free

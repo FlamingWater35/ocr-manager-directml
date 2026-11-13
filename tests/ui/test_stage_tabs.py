@@ -17,9 +17,9 @@ for: exactly one tab looks active, and it is the current one.
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import Qt
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.theme import qss, tokens
 from app.views.stage import Stage

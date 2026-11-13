@@ -740,7 +740,7 @@ QWidget#FolderSettings QComboBox QAbstractItemView {{
 """.strip("\n")
 
 
-def apply_theme(app: "QApplication") -> None:  # noqa: F821 -- PyQt6 import kept local
+def apply_theme(app: "QApplication") -> None:  # noqa: F821 -- Qt import kept local
     """Install the dark theme on `app`: the generated stylesheet
     (`build_stylesheet()`), the theme's default font (`tokens.FONT_STACK`,
     ruling C9's CJK-capable fallback), and a dark `QPalette` built from
@@ -748,7 +748,7 @@ def apply_theme(app: "QApplication") -> None:  # noqa: F821 -- PyQt6 import kept
     message boxes, ...) still read as dark rather than falling back to the
     platform's light default.
     """
-    from PyQt6.QtGui import QColor, QFont, QPalette
+    from PySide6.QtGui import QColor, QFont, QPalette
 
     app.setStyleSheet(build_stylesheet())
 

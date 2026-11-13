@@ -27,8 +27,8 @@ import shutil
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QProcess, QSettings, QSize, Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QObject, QProcess, QSettings, QSize, Qt, Signal
+from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -180,7 +180,7 @@ class _Picker(QObject):
     `chosen(path)` when the user picks one, nothing when they cancel.
     Subclasses give kdialog's arguments and the Qt dialog."""
 
-    chosen = pyqtSignal(str)
+    chosen = Signal(str)
 
     def __init__(self, parent_widget: QWidget):
         super().__init__(parent_widget)
@@ -272,8 +272,8 @@ class RecentRow(QWidget):
     to open it; Delete, or the "Remove" that shows while the pointer is over
     the row, asks to take it off the list."""
 
-    open_requested = pyqtSignal(str)
-    remove_requested = pyqtSignal(str)
+    open_requested = Signal(str)
+    remove_requested = Signal(str)
 
     def __init__(self, entry: RecentEntry, now: float, badge_width: int, parent: QWidget | None = None):
         super().__init__(parent)
@@ -394,9 +394,9 @@ class OpenFolderView(QWidget):
     `open_recent_requested(path)` for one of the recent files & folders
     listed under them."""
 
-    choose_requested = pyqtSignal()
-    choose_episode_requested = pyqtSignal()
-    open_recent_requested = pyqtSignal(str)
+    choose_requested = Signal()
+    choose_episode_requested = Signal()
+    open_recent_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)

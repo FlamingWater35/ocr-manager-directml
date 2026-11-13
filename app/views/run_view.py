@@ -30,9 +30,9 @@ videocr). Views import no core module.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, QPoint, QProcess, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QObject, QPoint, QProcess, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath
+from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -167,7 +167,7 @@ class GpuMeter(QObject):
     never waits for it. `value()` is None until a query succeeds and after
     one fails; a program that cannot be started is not tried again."""
 
-    changed = pyqtSignal(object)            # int percent | None
+    changed = Signal(object)            # int percent | None
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)

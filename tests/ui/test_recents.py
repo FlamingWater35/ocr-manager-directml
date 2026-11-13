@@ -19,7 +19,8 @@ def folder(path: str, opened: float = 0.0, count: int | None = 3) -> RecentEntry
 
 
 def test_the_module_imports_no_qt():
-    code = "import sys, app.recents; sys.exit(any(m.startswith('PyQt6') for m in sys.modules))"
+    code = ("import sys, app.recents; "
+            "sys.exit(any(m.split('.')[0] in ('PySide6', 'PyQt6', 'PyQt5') for m in sys.modules))")
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
 
 

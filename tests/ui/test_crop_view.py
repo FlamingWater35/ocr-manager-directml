@@ -18,10 +18,10 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt
-from PyQt6.QtGui import QMouseEvent
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QWidget
 
 from ui import editor_geometry
 from app import masking

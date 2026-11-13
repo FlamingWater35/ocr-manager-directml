@@ -28,8 +28,8 @@ does it.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAnimation
-from PyQt6.QtGui import (
+from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAnimation
+from PySide6.QtGui import (
     QColor,
     QFontMetricsF,
     QImage,
@@ -39,7 +39,7 @@ from PyQt6.QtGui import (
     QPixmap,
     QRadialGradient,
 )
-from PyQt6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from app.theme import tokens
 from app.views.episode.common import CAPTION_SIZE, SMALL_SIZE, font

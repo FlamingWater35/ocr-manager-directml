@@ -34,9 +34,7 @@ protobuf==7.36.2
 pyclipper==1.4.0
 pydantic==2.14.3
 pydantic-core==2.50.4
-PyQt6==6.10.2
-PyQt6-Qt6==6.10.2
-PyQt6-sip==13.13.0
+PySide6-Essentials==6.12.0
 python-bidi==0.6.12
 PyYAML==6.0.2
 rapidfuzz==3.14.3
@@ -45,6 +43,7 @@ requests==2.34.2
 scipy==1.17.0
 setuptools==80.9.0
 shapely==2.2.0
+shiboken6==6.12.0
 six==1.17.0
 sympy==1.14.0
 thefuzz==0.22.1

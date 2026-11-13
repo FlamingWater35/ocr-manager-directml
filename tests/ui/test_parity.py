@@ -33,8 +33,8 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.controller import ProjectController
 from app.logbook import PIPELINE_LOG

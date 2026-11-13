@@ -46,7 +46,7 @@ def test_episode_feed_imports_neither_qt_nor_core():
             modules += [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and node.module:
             modules.append(node.module)
-    assert not [m for m in modules if m.split(".")[0] in ("PyQt6", "core", "videocr")]
+    assert not [m for m in modules if m.split(".")[0] in ("PySide6", "PyQt6", "core", "videocr")]
 
 
 # --------------------------------------------------------------------------

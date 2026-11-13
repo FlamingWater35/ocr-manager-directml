@@ -4,7 +4,7 @@ The bug this exists for: `ButtonSymbols.NoButtons` combined with ANY QSS
 `border` on a `QAbstractSpinBox` makes Qt lay the internal `QLineEdit` out
 **1 px wide**. `text()` still returns the value and the widget still takes its
 normal space, so a screenshot shows an empty box with a thin caret and nothing
-in the code looks wrong. Measured on PyQt6 6.10: border + NoButtons leaves the
+in the code looks wrong. Measured on Qt 6.12: border + NoButtons leaves the
 edit 1x21 px; border + UpDownArrows (with the arrows hidden by a 0-width
 `::up-button`) leaves it 148 px wide.
 
@@ -14,7 +14,7 @@ either way. `MIN_EDITABLE_TEXT_PX` is a floor no legible value can fit under:
 even one digit needs several pixels plus the frame's padding.
 """
 
-from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox, QLineEdit
+from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QLineEdit
 
 MIN_EDITABLE_TEXT_PX = 8
 

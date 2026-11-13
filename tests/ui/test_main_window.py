@@ -21,10 +21,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QTimer, QUrl
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QTimer, QUrl
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget
 
 from app.controller import ProjectController
 from app.controller import UnsupportedProjectVersion
@@ -855,7 +855,9 @@ def test_drag_and_drop_of_a_directory_opens_it(make_window, tmp_project, tmp_pat
     folder = tmp_project(fixture="slay")
     mime = QMimeData()
     mime.setUrls([QUrl.fromLocalFile(str(folder))])
-    enter = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton,
+    # QPointF, not QPoint: the QPoint overload is deprecated in Qt 6.12 and
+    # pytest turns the DeprecationWarning into noise on every run.
+    enter = QDragEnterEvent(QPointF(10, 10), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton,
                             Qt.KeyboardModifier.NoModifier)
     window.dragEnterEvent(enter)
     assert enter.isAccepted()
@@ -869,7 +871,7 @@ def test_drag_and_drop_of_a_directory_opens_it(make_window, tmp_project, tmp_pat
     # any other file is refused.
     video = QMimeData()
     video.setUrls([QUrl.fromLocalFile(str(folder / SLAY_NAMES[0]))])
-    enter = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, video, Qt.MouseButton.LeftButton,
+    enter = QDragEnterEvent(QPointF(10, 10), Qt.DropAction.CopyAction, video, Qt.MouseButton.LeftButton,
                             Qt.KeyboardModifier.NoModifier)
     window.dragEnterEvent(enter)
     assert enter.isAccepted()
@@ -878,7 +880,7 @@ def test_drag_and_drop_of_a_directory_opens_it(make_window, tmp_project, tmp_pat
     other.write_text("not a video", encoding="utf-8")
     not_openable = QMimeData()
     not_openable.setUrls([QUrl.fromLocalFile(str(other))])
-    enter = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, not_openable, Qt.MouseButton.LeftButton,
+    enter = QDragEnterEvent(QPointF(10, 10), Qt.DropAction.CopyAction, not_openable, Qt.MouseButton.LeftButton,
                             Qt.KeyboardModifier.NoModifier)
     enter.ignore()
     window.dragEnterEvent(enter)
@@ -1031,8 +1033,8 @@ def test_a_successful_save_leaves_an_open_failure_on_screen(slay_window, tmp_pro
 def test_closing_warns_again_while_saving_is_blocked(make_window, tmp_project, monkeypatch):
     """_save_blocked latches, so every later save -- close_folder's and
     shutdown's -- returned silently and the session's work went with it."""
-    from PyQt6.QtGui import QCloseEvent
-    from PyQt6.QtWidgets import QMessageBox
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtWidgets import QMessageBox
 
     from app.main_window import BLOCKED_SAVE_TITLE
     from core.project import store as store_module
@@ -1230,7 +1232,7 @@ def test_space_and_t_act_from_the_queue_and_stage_but_step_aside_for_key_consume
 
 
 def test_key_consumer_detection():
-    from PyQt6.QtWidgets import QCheckBox, QComboBox, QListWidget, QPlainTextEdit, QSlider, QTextEdit
+    from PySide6.QtWidgets import QCheckBox, QComboBox, QListWidget, QPlainTextEdit, QSlider, QTextEdit
 
     from app.main_window import consumes_keys
 
@@ -1241,6 +1243,17 @@ def test_key_consumer_detection():
 
 
 def test_an_exception_in_a_slot_is_reported_instead_of_aborting(slay_window, capsys):
+    """A slot that raises reaches the window, and the loop keeps running.
+
+    The pump here is `processEvents` rather than `QTest.qWait`: qWait
+    re-raises whatever the slot threw out of its own call, so the exception
+    would never get as far as `sys.excepthook` and the test would be asserting
+    on its own plumbing. Under `app.exec()` and `processEvents` -- the two
+    places a real slot runs -- PySide6 calls the hook and carries on, which is
+    the behaviour this pins. Proven with:
+    QTimer.singleShot(0, boom); QTimer.singleShot(60, quit); app.exec()
+    -> the traceback is printed, exit code 0, and the later slot still runs.
+    """
     from app.__main__ import install_excepthook
 
     window = slay_window
@@ -1254,7 +1267,7 @@ def test_an_exception_in_a_slot_is_reported_instead_of_aborting(slay_window, cap
     try:
         assert replaced is previous
         QTimer.singleShot(0, boom)
-        QTest.qWait(30)
+        QApplication.processEvents()
     finally:
         sys.excepthook = previous
     assert not window.crash_banner.isHidden()
@@ -1394,7 +1407,7 @@ def test_a_burst_of_file_changes_refreshes_counts_once_per_view(slay_window):
 
 
 def test_queue_hint_wraps_instead_of_clipping(slay_window):
-    from PyQt6.QtGui import QTextDocument
+    from PySide6.QtGui import QTextDocument
 
     hint = slay_window.queue.hint_label
     assert hint.wordWrap()

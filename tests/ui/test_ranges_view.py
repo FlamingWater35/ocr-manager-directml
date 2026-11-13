@@ -15,9 +15,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QEvent, QPointF, Qt
-from PyQt6.QtGui import QMouseEvent
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QApplication
 
 from app.controller import ProjectController
 from app.theme import tokens

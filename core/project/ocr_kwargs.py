@@ -8,7 +8,7 @@ task-2-brief.md. Reduced OCR fidelity from a changed argument is the one
 unforgivable failure this module exists to prevent, so every rule here
 mirrors the old code's rule one-to-one rather than being "improved".
 
-This module has no PyQt6 dependency, same as the rest of `core/project/`.
+This module has no Qt dependency, same as the rest of `core/project/`.
 """
 import os
 from dataclasses import dataclass

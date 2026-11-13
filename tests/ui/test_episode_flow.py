@@ -20,10 +20,10 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.controller import ProjectController
 from app.main_window import MODE_REVIEW, MODE_RUN, MainWindow
@@ -590,7 +590,9 @@ def test_dropping_a_video_opens_it_as_an_episode(make_window, videos):
     folder = videos(["EP06.mkv", "EP07.mkv"])
     mime = QMimeData()
     mime.setUrls([QUrl.fromLocalFile(str(folder / "EP07.mkv"))])
-    enter = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton,
+    # QPointF, not QPoint: the QPoint overload is deprecated in Qt 6.12 and
+    # pytest turns the DeprecationWarning into noise on every run.
+    enter = QDragEnterEvent(QPointF(10, 10), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton,
                             Qt.KeyboardModifier.NoModifier)
     window.dragEnterEvent(enter)
     assert enter.isAccepted()

@@ -6,7 +6,7 @@ real JobRunner would, with constructed results. Events reach the controller
 through its listener (a queue); `drain_events()` is what the controller's
 30 ms timer calls, so tests call it directly for determinism, and wait (with
 the event loop running) only for what really is asynchronous: the debounced
-save and the folder watcher. PyQt6 does not expose QTest.qWaitFor, so
+save and the folder watcher. PySide6 does not expose QTest.qWaitFor, so
 wait_for() below polls with QTest.qWait.
 """
 from __future__ import annotations
@@ -20,8 +20,8 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PyQt6.QtGui import QColor, QImage
-from PyQt6.QtTest import QTest
+from PySide6.QtGui import QColor, QImage
+from PySide6.QtTest import QTest
 
 from app.activity import ActivitySnapshot
 from app.controller import CPU_WORKERS, VIEW_KINDS, ProjectController, default_runner_factory
@@ -99,7 +99,7 @@ def wait_for(predicate, timeout_ms: int) -> bool:
 
 
 class Spy:
-    """Records every emission of a pyqtSignal."""
+    """Records every emission of a Signal."""
 
     def __init__(self, signal):
         self.calls: list[tuple] = []

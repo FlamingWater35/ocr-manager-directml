@@ -17,10 +17,19 @@ The flags:
 The main window is imported only after the boot step, so a broken
 environment reports itself before any widget exists.
 
-PyQt6 aborts the process when a slot raises and `sys.excepthook` is Python's
-default, so `main` installs a hook for as long as the window runs: the
-traceback goes to stderr and to the window (`report_unexpected_error`: the
-Pipeline log and a banner), and the app keeps running.
+PySide6 does not abort the process when a slot raises: it prints the traceback
+through `sys.excepthook` and carries on with the event loop. Measured here with
+`QTimer.singleShot(0, boom); QTimer.singleShot(60, quit); app.exec()` -- the
+traceback is printed, the later slot still runs, and exec returns 0. The
+default hook only writes to stderr, which a windowed build does not have, so
+`main` installs its own for as long as the window runs: the traceback goes to
+stderr *and* to the window (`report_unexpected_error`: the Pipeline log and a
+banner). Without it a failing slot would be silent in the shipped app.
+
+One exception to that: `QTest.qWait` re-raises whatever a slot threw out of its
+own call instead of routing it through the hook, so tests that want to exercise
+this must pump with `QApplication.processEvents()` (see
+`tests/ui/test_main_window.py::test_an_exception_in_a_slot_is_reported_instead_of_aborting`).
 """
 from __future__ import annotations
 
@@ -33,9 +42,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
 
 from app.bootstrap import Boot, boot
 from app.theme.qss import apply_theme
