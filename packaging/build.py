@@ -416,6 +416,34 @@ def make_ico(py: Path, out: Path) -> None:
 
 # -- the Windows artifacts ---------------------------------------------------
 
+ISCC_LOCATIONS = (
+    r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    r"C:\Program Files\Inno Setup 6\ISCC.exe",
+    r"C:\Program Files\Inno Setup 7\ISCC.exe",
+    r"C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
+)
+
+
+def find_iscc() -> str:
+    """ISCC on PATH, else the usual install folders.
+
+    Inno Setup 7 installs to `C:\\Program Files\\Inno Setup 7` -- not the x86
+    folder version 6 used, and not on PATH -- so hard-coding version 6's path
+    made a machine with only 7 fail with "no such file" after the zip had
+    already been written. The installer script itself needs no change: 7 still
+    reads the `#ifndef`/`#error` dialect this one uses.
+    """
+    found = shutil.which("iscc")
+    if found:
+        return found
+    for candidate in ISCC_LOCATIONS:
+        if Path(candidate).exists():
+            return candidate
+    raise CommandFailed(
+        "Inno Setup's ISCC.exe was not found: put it on PATH or install it in "
+        + " or ".join(f'"{p}"' for p in ISCC_LOCATIONS))
+
+
 def windows_artifacts(tree: Path, version: str, dist: Path, work: Path) -> list[Path]:
     ico = work / "app.ico"
     make_ico(python_exe(tree, "win"), ico)
@@ -442,7 +470,7 @@ def windows_artifacts(tree: Path, version: str, dist: Path, work: Path) -> list[
             if path.is_file():
                 zf.write(path, f"{stem}/{path.relative_to(tree).as_posix()}")
 
-    iscc = shutil.which("iscc") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+    iscc = find_iscc()
     log(f"writing {stem}.exe")
     run([iscc, "/Qp", f"/DAppVersion={version}", f"/DSourceDir={tree}", f"/DOutputDir={dist}",
          f"/DOutputBaseFilename={stem}", f"/DIconFile={ico}",

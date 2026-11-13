@@ -61,6 +61,25 @@ $env:QT_QPA_PLATFORM = "offscreen"; .venv\Scripts\python -m pytest tests\ -m "no
 (`tests/ui/conftest.py` supplies the one session-scoped `QApplication` fixture
 instead of `qtbot`).
 
+The artifact half of the build needs two things on `PATH`: MSVC's `cl`/`rc`
+(from a `vcvars64` shell) and Inno Setup's `ISCC.exe`. `ISCC.exe` is looked up
+on `PATH` first and then in the usual install folders, so Inno Setup 7 —
+which installs to `C:\Program Files\Inno Setup 7`, not the `(x86)` folder
+version 6 used — works without touching `PATH`; `tests/test_find_iscc.py`
+pins that. `cl` and `rc` are not searched for, because a compiler is only
+ever reachable through its environment -- run the build from a shell where
+`vcvars64.bat` has been called:
+
+```powershell
+cmd /c '"...\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1 && set PATH' |
+  ForEach-Object { if ($_ -match '^PATH=(.*)$') { $env:PATH = $Matches[1] } }
+```
+
+Setting only `PATH` is enough for `rc` and `cl` to start, but `cl` also needs
+`INCLUDE` and `LIB`; copy those two from the same `set` output if the launcher
+compile fails with `C1034: windows.h: no include path set`. The bundle half
+(`--bundle-only`) needs neither toolchain.
+
 ## Layout
 
 ```
