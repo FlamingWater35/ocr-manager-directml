@@ -12,6 +12,13 @@ chips, and Folder settings / Logs / Start.
   (`show_start_error`).
 - The "Review · Run" switch shows while a run exists, until another folder
   opens (ruling B12); the window switches the centre and right area.
+
+- "↑ 3.0.2 available" is an offer, not a task: a small ghost button that
+  appears only when `app.updates` found a later release, opens its GitHub
+  page, and never asks anything. It sits beside Logs and stays there during
+  a run for the same reason Logs does -- it is read-only -- but it takes no
+  room while hidden, so a build that is up to date looks exactly as it did
+  before this feature existed.
 - During a run (plan 3B Task 5, B12/B13) the chips, Folder settings and
   Start give way to the run status in place of the path (`run_status_text`,
   refreshed every second) and "⏸ pause" / "▶ resume" and "■ stop"; both are
@@ -57,6 +64,13 @@ FOLDER_SETTINGS_TEXT, EPISODE_SETTINGS_TEXT = "⚙ Folder settings", "⚙ Settin
 EPISODE_START_TEXT = "▶ Start OCR"
 FOLDER_MODES, EPISODE_MODES = ["Review", "Run"], ["Review", "Working"]
 OPEN_TOOLTIP = "Open an episode (Ctrl+O) or a folder (Ctrl+Shift+O)"
+UPDATE_TOOLTIP = "Open the {version} release page on GitHub"
+
+
+def update_text(version: str) -> str:
+    """The update offer. The arrow says "later than what you have"; the
+    version says which, so the button is worth a look before it is clicked."""
+    return f"↑ {version} available"
 
 
 def start_text(count: int) -> str:
@@ -102,6 +116,7 @@ class TopBar(QWidget):
     start_requested = Signal()
     open_requested = Signal()
     mode_changed = Signal(int)          # 0 Review, 1 Run
+    update_requested = Signal()         # the "↑ x.y.z available" button was clicked
 
     def __init__(self, controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -150,11 +165,20 @@ class TopBar(QWidget):
         self.pause_button.clicked.connect(self._toggle_run_pause)
         self.stop_button = Button(STOP_TEXT, "ghost")
         self.stop_button.clicked.connect(lambda _checked=False: self._controller.stop_run())
+        # Hidden until `show_update` is told a newer release exists. It is
+        # built unconditionally so a test can assert the "up to date" state
+        # without reaching into the layout: hidden IS the state.
+        self.update_button = Button("", "ghost", small=True)
+        self.update_button.setObjectName("UpdateButton")
+        self.update_button.clicked.connect(self.update_requested)
+        self.update_button.hide()
+        self._update_url = ""
         layout.addWidget(self.settings_button)
         layout.addWidget(self.logs_button)
+        layout.addWidget(self.update_button)
         layout.addWidget(self.start_error_label)
-        for button in (self.settings_button, self.logs_button, self.start_button, self.pause_button,
-                       self.stop_button):
+        for button in (self.settings_button, self.logs_button, self.update_button, self.start_button,
+                       self.pause_button, self.stop_button):
             button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         for button in (self.start_button, self.pause_button, self.stop_button):
             layout.addWidget(button)
@@ -182,6 +206,24 @@ class TopBar(QWidget):
     def clear_start_error(self, *_args) -> None:
         self.start_error_label.set_full_text("")
         self.start_error_label.hide()
+
+    # --- the update offer -------------------------------------------------------------
+
+    def show_update(self, version: str, url: str = "") -> None:
+        """Offer `version` in the bar. `url` is the page the window opens;
+        the bar only draws the button and emits `update_requested`."""
+        self._update_url = url
+        self.update_button.setText(update_text(version))
+        self.update_button.setToolTip(UPDATE_TOOLTIP.format(version=version))
+        self.update_button.setAccessibleName(update_text(version))
+        self.update_button.show()
+
+    def clear_update(self) -> None:
+        self._update_url = ""
+        self.update_button.hide()
+
+    def update_url(self) -> str:
+        return self._update_url
 
     def _toggle_run_pause(self) -> None:
         snapshot = self._controller.run_snapshot()

@@ -20,6 +20,14 @@ canvas nudges with the arrows).
 `report_unexpected_error` is where `python -m app`'s excepthook sends an
 exception raised in a slot: the Pipeline log and a dismissible banner.
 
+An update check runs 2.5 s after the window exists (`UPDATE_DELAY_MS`), on a
+daemon thread, and a newer release is offered as a small button in the top
+bar -- "↑ 3.0.2 available" -- which opens its GitHub page. It is an offer and
+never a prompt: no dialog, no banner, nothing that takes focus, and a build
+that is up to date looks exactly as it did before the feature. See
+`app/updates.py` for why the check reads the redirect of
+`releases/latest` rather than the API.
+
 "⚙ Folder settings" opens the sheet of plan 3B Task 4
 (`open_folder_settings`). It belongs to reviewing, so it never covers the
 Run view: opening it switches back to Review mode, and switching to Run
@@ -64,8 +72,8 @@ import logging
 import os
 from collections.abc import Callable
 
-from PySide6.QtCore import QByteArray, Qt
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
+from PySide6.QtCore import QByteArray, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractButton,
     QAbstractItemView,
@@ -89,6 +97,7 @@ from app.engine import decoder_problem, engine_problem
 from app.logbook import PIPELINE_LOG
 from app.state_text import can_mark_reviewed, can_run_proof
 from app.theme import tokens
+from app.updates import UpdateChecker
 from app.views.activity import ActivityStrip
 from app.views.banner import Banner
 from app.views.episode import DoneView, PrepareView, WorkingView
@@ -141,6 +150,12 @@ RUN_QUIT_TEXT = "Stop it and quit?"
 BLOCKED_SAVE_TITLE = "Settings were not saved"
 BLOCKED_SAVE_TEXT = ("This folder's .ocr.json could not be written, so nothing you changed in this session is "
                      "on disk. Close anyway?")
+# The update check waits this long after the window is up. Two and a half
+# seconds is after the first paint, the dependency banner and the first
+# folder open (a drop, a command-line path) have had their turn -- so the
+# request never competes with the work the user is watching -- and it is
+# still early enough to be read as "on launch" rather than "later".
+UPDATE_DELAY_MS = 2500
 
 
 def dependency_problems() -> list[tuple[str, str]]:
@@ -177,10 +192,13 @@ def _open_error_text(path: str, exc: Exception) -> str:
 
 class MainWindow(QMainWindow):
     def __init__(self, controller: ProjectController | None = None,
-                 tabs_factory: Callable[[ProjectController], list[StageTab]] = placeholder_tabs):
+                 tabs_factory: Callable[[ProjectController], list[StageTab]] = placeholder_tabs,
+                 *, update_checker: UpdateChecker | None = None,
+                 open_url: Callable[[QUrl], object] | None = None):
         super().__init__()
         self.controller = controller if controller is not None else ProjectController(parent=self)
         self._closing = False               # the close was confirmed: never ask its questions twice
+        self._open_url = open_url or QDesktopServices.openUrl
         self.setWindowTitle(APP_NAME)
         self.setAcceptDrops(True)
         self._episode_mode = False
@@ -239,6 +257,14 @@ class MainWindow(QMainWindow):
         column.addWidget(self.activity_strip)
         self.setCentralWidget(central)
         self.folder_settings = FolderSettingsSheet(self.controller, central, anchor=self.centre)
+        # Built before `_connect()` so its signals exist for the connection
+        # below. A caller can hand one in (tests do, to answer without a
+        # network); otherwise it is ours, and disabled under
+        # $OCR_MANAGER_UPDATE_CHECK=0 so a test window costs nothing and a
+        # launch without a network costs no wait.
+        self.update_checker = update_checker if update_checker is not None else UpdateChecker(self)
+        self.update_checker.available.connect(self._on_update_available)
+        self._update_timer: QTimer | None = None
 
         self._connect()
         self.quit_action = self._shortcut("Quit", "Ctrl+Q", self.close)
@@ -251,6 +277,7 @@ class MainWindow(QMainWindow):
             app.focusChanged.connect(self._sync_actions)
         self._restore_geometry()
         self._check_dependencies()
+        self._check_for_updates()
         if self.controller.project is not None:          # a controller that already has a folder open
             self.inspector.adopt_open_project()
             self.queue.rebuild()
@@ -287,6 +314,7 @@ class MainWindow(QMainWindow):
         self.topbar.logs_requested.connect(lambda: self.open_logs(None))
         self.topbar.start_requested.connect(self.start_run)
         self.topbar.mode_changed.connect(self.set_mode)
+        self.topbar.update_requested.connect(self._open_update_page)
         self.open_view.choose_requested.connect(self.choose_folder)
         self.open_view.choose_episode_requested.connect(self.choose_episode)
         self.open_view.open_recent_requested.connect(self.open_path)
@@ -648,6 +676,43 @@ class MainWindow(QMainWindow):
             self.dependency_banner.show_message(" | ".join(title for title, _text in problems),
                                                 "\n\n".join(text for _title, text in problems), "warn")
 
+    # --- updates --------------------------------------------------------------------------
+
+    def _check_for_updates(self, delay_ms: int | None = None) -> None:
+        """Ask GitHub for a newer release `UPDATE_DELAY_MS` after the window
+        exists, and offer it in the top bar if there is one.
+
+        Nothing here blocks: `UpdateChecker` does the request on a daemon
+        thread and emits `available`, which Qt queues back onto this thread.
+        A failure is silent (logged only) -- see app/updates.py for why the
+        check must never be able to look like a broken app.
+
+        The timer is a child of the window rather than a bare
+        `QTimer.singleShot`, so a window that closes before the delay is up
+        takes its pending check with it instead of firing into a deleted
+        checker.
+        """
+        checker = self.update_checker
+        if not checker.enabled():
+            return
+        self._update_timer = QTimer(self)
+        self._update_timer.setSingleShot(True)
+        self._update_timer.setInterval(UPDATE_DELAY_MS if delay_ms is None else delay_ms)
+        self._update_timer.timeout.connect(checker.start)
+        self._update_timer.start()
+
+    def _on_update_available(self, version: str, url: str) -> None:
+        logger.info("offering update %s: %s", version, url)
+        self.topbar.show_update(version, url)
+
+    def _open_update_page(self) -> None:
+        """The update button: the release page, in the user's browser."""
+        url = self.topbar.update_url()
+        if not url:
+            return
+        logger.info("opening the release page: %s", url)
+        self._open_url(QUrl(url))
+
     def closeEvent(self, event) -> None:
         """Quitting stops whatever is running, so it asks the same questions
         opening another folder does: once, and only while there is something
@@ -663,6 +728,11 @@ class MainWindow(QMainWindow):
         app_settings().setValue(GEOMETRY_KEY, self.saveGeometry())
         if self.logs_window is not None:
             self.logs_window.close()
+        # A window closed inside the first 2.5 s is normal (a mis-double-click);
+        # its pending update check has nobody left to tell, and `close()` does
+        # not destroy the C++ object, so the timer would otherwise still fire.
+        if self._update_timer is not None:
+            self._update_timer.stop()
         # The shutdown below waits (up to its timeout) for running jobs to
         # notice their cancel; the window goes away first rather than sit
         # frozen on screen for those seconds.

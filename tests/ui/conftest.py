@@ -69,6 +69,22 @@ def settings_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_update_requests(monkeypatch):
+    """Never ask GitHub from a test.
+
+    `tests/ui` builds hundreds of windows, each of which schedules the update
+    check 2.5 s out; a suite must not spend that budget -- GitHub's address
+    rate limit is 60 requests an hour per address -- nor wait out a socket
+    timeout on a machine with no network. The check is off by default here,
+    and the tests that exercise it construct their own `UpdateChecker` with
+    an injected answer (see test_updates.py). Off via the app's own switch,
+    not by patching the module, so the production path stays the one under
+    test.
+    """
+    monkeypatch.setenv("OCR_MANAGER_UPDATE_CHECK", "0")
+
+
+@pytest.fixture(autouse=True)
 def _delete_leaked_top_level_widgets():
     """Delete the top-level widgets a test leaves behind.
 

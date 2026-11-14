@@ -269,6 +269,20 @@ PARITY = {
         "tests/test_episode_cache.py::test_the_seed_is_the_newest_siblings_crop_as_fractions",
         "tests/test_episode_cache.py::test_the_last_speed_is_video_seconds_per_wall_second",
     ],
+    # Newer than §11, added with the first release: the window asks GitHub
+    # once, 2.5 s after it opens, and offers a later release as a button.
+    # Losing it would be silent -- the button would simply never appear --
+    # so it carries the same obligation as the rows above.
+    "Update check: a later release is offered in the top bar": [
+        "tests/ui/test_updates.py::test_an_available_update_becomes_a_button_that_opens_its_page",
+        "tests/ui/test_updates.py::test_the_update_button_takes_no_room_until_there_is_an_update",
+        "tests/ui/test_updates.py::test_the_offer_survives_a_run_and_a_new_folder",
+        "tests/ui/test_updates.py::test_the_window_checks_for_updates_after_its_delay",
+        "tests/ui/test_updates.py::test_a_window_that_closes_before_its_check_takes_the_timer_with_it",
+        "tests/ui/test_updates.py::test_the_checker_reports_off_the_gui_thread_and_finishes_once",
+        "tests/ui/test_updates.py::test_a_raising_check_is_logged_not_raised",
+        "tests/ui/test_updates.py::test_latest_location_reads_the_redirect_without_following_it",
+    ],
 }
 
 MANUAL_CHECKS = {

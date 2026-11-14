@@ -108,6 +108,20 @@ QPushButton[variant="ghost"]:disabled {{
     border-color: {tokens.LINE};
     color: {tokens.DIM2};
 }}
+/* The update offer ("↑ 3.0.2 available"). A ghost button in the accent ink
+   rather than the primary fill: it must be findable in the bar without
+   looking like the thing to press -- Start is the task, this is an aside.
+   The dashed border says "not part of the workbench" the way an annotation
+   does, and the hover fill is the same PANEL2 a ghost button uses. */
+QPushButton#UpdateButton {{
+    background-color: transparent;
+    border: 1px dashed {tokens.ACC_DIM};
+    color: {tokens.ACC};
+}}
+QPushButton#UpdateButton:hover {{
+    background-color: {tokens.PANEL2};
+    border-color: {tokens.ACC};
+}}
 QPushButton[small="true"] {{
     font-size: {_font_px(tokens.FONT_SIZE_BTN_SM)}px;
     padding: {tokens.px(3)}px {tokens.px(8)}px;
@@ -134,7 +148,8 @@ QPushButton[toggled="true"] {{
 QPushButton:focus,
 QPushButton#StageTab:focus,
 QPushButton#LogHeader:focus,
-QPushButton#SegmentItem:focus {{
+QPushButton#SegmentItem:focus,
+QPushButton#UpdateButton:focus {{
     border: 1px solid {tokens.ACC};
 }}
 QPushButton[variant="primary"]:focus {{

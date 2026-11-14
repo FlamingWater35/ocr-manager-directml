@@ -27,7 +27,7 @@ from app.theme import tokens
 # Every symbol a button or a status line puts in front of a word, plus the
 # ones drawn on their own. Keep this list in step with the inventory test
 # below, which reads the source rather than a hand-written list.
-SYMBOLS = ["▶", "⏸", "■", "⤓", "⚙", "✓", "✕", "◆", "▸", "▾", "⤢", "↻", "⇄", "⚠", "◀", "▲"]
+SYMBOLS = ["▶", "⏸", "■", "⤓", "⚙", "✓", "✕", "◆", "▸", "▾", "⤢", "↻", "⇄", "⚠", "◀", "▲", "↑"]
 
 # The three that used to come from the emoji font. Named so a failure says
 # which regression came back rather than "a symbol".

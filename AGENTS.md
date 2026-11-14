@@ -89,6 +89,7 @@ app/            the PySide6 window — the only layer that may import Qt
   cli.py          --self-test / --ocr-smoke / --download-models
   controller.py   ProjectController: the one object views talk to
   engine.py       engine_problem() / decoder_problem() for the startup banner
+  updates.py      the one outbound request: releases/latest -> "↑ x.y.z available"
   views/          the workbench UI (top bar, queue, stage, inspector, tabs, episode screens)
   widgets/base.py, theme/{tokens,qss}.py    the design system
 core/           Qt-free domain: detectors, jobs, project model, runtime paths
@@ -264,6 +265,7 @@ when the folder is absent.
 | `OCR_MANAGER_HWACCEL` | `1`/`true`/`yes`/`on` tries `-hwaccel d3d11va`, verified per file against software decode before it is used; unset means software decode |
 | `OCR_MANAGER_LOG_LEVEL` | `debug` (default), `info`, `warning`, `error`, `critical` |
 | `OCR_MANAGER_UI_SCALE` | UI scale multiplier, clamped to 1.0–3.0 (default 1.25) |
+| `OCR_MANAGER_UPDATE_CHECK` | `0`/`false`/`no`/`off` turns the release check off; unset means on (`tests/ui/conftest.py` sets `0` for the whole suite) |
 | `QT_QPA_PLATFORM` | set to `offscreen` for tests and CI |
 
 ## Git notes

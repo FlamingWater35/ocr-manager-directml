@@ -127,6 +127,8 @@ Get started instantly from the [Releases page](https://github.com/FlamingWater35
 
 Each release also lists `SHA256SUMS.txt` so you can verify the download.
 
+**Update checks.** A couple of seconds after the window opens, the app asks GitHub whether a later release exists and, if one does, puts a small **↑ x.y.z available** button in the top bar next to **Logs**. It is only an offer: nothing pops up, nothing takes focus, and the button opens the release page in your browser so you can read the notes before deciding. A build that is already current looks exactly as it did before. Set `OCR_MANAGER_UPDATE_CHECK=0` to turn the check off entirely (offline machines, or a managed install that must not make outbound requests).
+
 **Requirements:** Windows 10 build 18362 or newer / Windows 11, x64. Any DirectX 12 capable graphics adapter for GPU OCR; the CPU fallback works without one. Nothing is installed on first run — the OCR engine, its models and ffmpeg are inside the download.
 
 Your data lives in `%LOCALAPPDATA%\ocr-manager`:
