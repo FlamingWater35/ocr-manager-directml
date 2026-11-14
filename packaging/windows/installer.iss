@@ -1,6 +1,6 @@
 ; OCR Manager's Windows installer (Inno Setup 6). Built by packaging/build.py:
 ;   ISCC /DAppVersion=1.0.0 /DSourceDir=<tree> /DOutputDir=<dist>
-;        /DOutputBaseFilename=ocr-manager-v1.0.0-win /DIconFile=<app.ico> installer.iss
+;        /DOutputBaseFilename=ocr-manager-directml-v1.0.0-windows /DIconFile=<app.ico> installer.iss
 ;
 ; A per-user install (no administrator rights) into
 ; %LOCALAPPDATA%\Programs\OCR Manager. The OCR engine the app downloads on

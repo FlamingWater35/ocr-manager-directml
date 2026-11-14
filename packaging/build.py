@@ -23,8 +23,11 @@ subtitles immediately at whichever size a folder picks. The only thing fetched
 at run time is a recognition model for a language PP-OCRv6 does not cover, into
 the user's data folder (`--download-models` prefetches all of them).
 
-Artifacts, named ocr-manager-v<X.Y.Z>-win.<ext>: .exe (per-user Inno Setup
-installer) and .zip (portable tree).
+Artifacts, named ocr-manager-directml-v<X.Y.Z>-windows.<ext>: .exe (per-user
+Inno Setup installer) and .zip (portable tree). The name carries the edition
+because the upstream `ocr-manager` publishes its own `ocr-manager-v*-win`
+downloads, and two files that differ only by a folder on the releases page are
+easy to mix up.
 
 Everything downloaded is pinned by URL and SHA-256 and cached in --cache.
 """
@@ -163,6 +166,19 @@ def app_version() -> str:
     if not match:
         sys.exit("app/version.py has no __version__")
     return match.group(1)
+
+
+ARTIFACT_PREFIX = "ocr-manager-directml"
+
+
+def artifact_stem(version: str) -> str:
+    """The file name both artifacts share: `ocr-manager-directml-v3.1.0-windows`.
+
+    The release workflow globs `dist/ocr-manager-directml-v*` and writes the
+    same name into the notes' Downloads table, so this is the one place the
+    name is spelled; `tests/test_artifact_names.py` holds the three together.
+    """
+    return f"{ARTIFACT_PREFIX}-v{version}-windows"
 
 
 def sha256(path: Path) -> str:
@@ -527,7 +543,7 @@ def windows_artifacts(tree: Path, version: str, dist: Path, work: Path) -> list[
     shutil.copy2(build / "launcher.exe", tree / f"{APP_NAME}.exe")
     shutil.copy2(PACKAGING / "windows" / "ocr-manager-cli.cmd", tree / "ocr-manager-cli.cmd")
 
-    stem = f"ocr-manager-v{version}-win"
+    stem = artifact_stem(version)
     archive = dist / f"{stem}.zip"
     log(f"writing {archive.name}")
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:

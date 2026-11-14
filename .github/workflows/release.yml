@@ -143,8 +143,8 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ocr-manager-win
-          path: dist/ocr-manager-v*
+          name: ocr-manager-directml-windows
+          path: dist/ocr-manager-directml-v*
           if-no-files-found: error
           compression-level: 0
 
@@ -170,7 +170,7 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: |
-          sha256sum ocr-manager-v* > SHA256SUMS.txt
+          sha256sum ocr-manager-directml-v* > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       # The release page is the changelog, then the Downloads table, nothing
@@ -194,8 +194,8 @@ jobs:
 
           | File | For |
           |---|---|
-          | \`ocr-manager-$TAG-win.exe\` | Windows 10/11 (x64). Installs for you only, no admin rights needed |
-          | \`ocr-manager-$TAG-win.zip\` | Windows 10/11 (x64), portable |
+          | \`ocr-manager-directml-$TAG-windows.exe\` | Windows 10/11 (x64). Installs for you only, no admin rights needed |
+          | \`ocr-manager-directml-$TAG-windows.zip\` | Windows 10/11 (x64), portable |
           | \`SHA256SUMS.txt\` | SHA-256 checksums of every file above |
 
           ## Requirements
@@ -213,5 +213,5 @@ jobs:
           body_path: notes.md
           fail_on_unmatched_files: true
           files: |
-            dist/ocr-manager-v*
+            dist/ocr-manager-directml-v*
             dist/SHA256SUMS.txt

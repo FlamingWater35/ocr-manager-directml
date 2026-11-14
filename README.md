@@ -122,8 +122,8 @@ Get started instantly from the [Releases page](https://github.com/FlamingWater35
 
 | File | What it is |
 | :--- | :--- |
-| `ocr-manager-<version>-win.exe` | Per-user installer. No admin rights needed. |
-| `ocr-manager-<version>-win.zip` | Portable folder. Unzip anywhere and run `ocr-manager.exe`. |
+| `ocr-manager-directml-v<version>-windows.exe` | Per-user installer. No admin rights needed. |
+| `ocr-manager-directml-v<version>-windows.zip` | Portable folder. Unzip anywhere and run `OCR Manager.exe`. |
 
 Each release also lists `SHA256SUMS.txt` so you can verify the download.
 
