@@ -209,7 +209,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v3
         with:
-          name: OCR Manager ${{ github.ref_name }}
+          name: OCR Manager DirectML ${{ github.ref_name }}
           body_path: notes.md
           fail_on_unmatched_files: true
           files: |

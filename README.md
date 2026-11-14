@@ -1,6 +1,6 @@
 <p align="center">
   <img src="resources/app-icon.png" alt="OCR Manager Icon" width="128">
-  <h1 align="center">OCR Manager - DirectML version</h1>
+  <h1 align="center">OCR Manager - DirectML Edition</h1>
   <p align="center">
     Unburn a whole season of hardsubbed episodes. OCR Manager tunes itself to each file, reads every line, and hands you timed <code>.ass</code> subtitles with positioned labels.
     <br>
