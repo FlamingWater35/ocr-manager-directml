@@ -686,7 +686,13 @@ def download_models(model_root_dir=None, progress=None, cancel=None) -> list[str
             "Det.model_type": ModelType(tier),
             "Rec.ocr_version": OCRVersion(V6[0]),
             "Rec.model_type": ModelType(tier),
-            "Rec.lang_type": LangRec.CH.value if hasattr(LangRec.CH, "value") else "ch",
+            # The tier, not the language, picks the file
+            # (`multi_PP-OCRv6_rec_<tier>`): PP-OCRv6 is one multilingual
+            # recogniser. A plain string is what `_params` passes too --
+            # `ParseParams.update_batch` converts it through `LangRec` itself --
+            # so reaching for the enum here only added a name that was never
+            # imported, which broke every tier entry of `--download-models`.
+            "Rec.lang_type": "ch",
         }
         with suppress_output():
             engine = RapidOCR(params=params)
