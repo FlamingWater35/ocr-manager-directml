@@ -19,6 +19,14 @@ Preparing screen's "here is what we found" (green and solid when the box
 is good to go, amber and dashed when it needs a look), and the Done
 screen's look at a line the user clicked.
 
+Both draw a spinner while a frame is on its way (`set_waiting`), because a
+frame is never instant: a 4K seek plus decode costs 0.33 s a frame and
+several times that while a run is using the machine. Without it the gradient
+placeholder said the same thing for "a slow decode" as for "nothing here",
+which is the difference the user is actually waiting on. The spinner is
+painted last, inside the same paint event, so it can never get out of step
+with the picture it is about.
+
 Both are plain painted QWidgets driven by QVariantAnimation (no QML). With
 `animated=False` every animation jumps to its end value, which is what the
 offscreen tests use: they assert what is shown, never how long it took.
@@ -43,6 +51,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from app.theme import tokens
 from app.views.episode.common import CAPTION_SIZE, SMALL_SIZE, font
+from app.views.loading import LOADING_TEXT, Spinner, paint_spinner
 
 FADE_MS = 400                  # the cross-fade to a new frame
 RISE_MS = 450                  # the line text rising into place
@@ -53,6 +62,9 @@ STAGE_BG = "#07090c"           # .work background (episode-view-v2.html)
 CAPTION_LINES = 2              # the caption band holds two lines of recognised text
 CAPTION_PAD = 10               # mockup px above and below the caption band's text
 TAG_ALPHA = 179                # .ts background rgba(10,12,16,.7)
+LOADING_RADIUS = 15            # mockup px, the spinner on an empty stage
+LOADING_TEXT_GAP = 10          # mockup px between the spinner and its label
+LOADING_TEXT_HEIGHT = 20       # mockup px, one line of SMALL_SIZE text
 
 
 def paint_placeholder(painter: QPainter, rect: QRectF) -> None:
@@ -113,6 +125,9 @@ class SlideShow(QWidget):
         self._rise = 1.0
         self._caption = ""
         self._stamp = ""
+        self._spinner = Spinner(self, animated=animated)
+        self._spinner.changed.connect(self.update)
+        self._waiting = False
         self._fade_animation = _animation(self, 0.0, 1.0, self._set_fade)
         self._fade_animation.setDuration(FADE_MS)
         self._fade_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
@@ -132,6 +147,25 @@ class SlideShow(QWidget):
 
     def has_picture(self) -> bool:
         return self._current is not None
+
+    def waiting(self) -> bool:
+        """A frame this screen asked for has not arrived yet, so what it draws
+        is a spinner rather than a picture that is simply not there."""
+        return self._waiting
+
+    def set_waiting(self, waiting: bool) -> None:
+        """Say whether a frame is on its way. The spinner runs only while
+        there is neither a picture nor a reason to stop waiting: once a line
+        is on screen a late frame must not replace it with an empty stage."""
+        waiting = bool(waiting)
+        if waiting == self._waiting:
+            return
+        self._waiting = waiting
+        self._sync_spinner()
+        self.update()
+
+    def _sync_spinner(self) -> None:
+        self._spinner.set_running(self._waiting and self._current is None)
 
     def picture_key(self) -> int | None:
         """The shown pixmap's cache key: changes exactly when the picture does."""
@@ -159,6 +193,7 @@ class SlideShow(QWidget):
             self._start(self._fade_animation, self._set_fade, 0.0, 1.0)
             self._push_animation.setDuration(max(MIN_PUSH_MS, int(hold_seconds * 1000)))
             self._start(self._push_animation, self._set_scale, 1.0, PUSH_IN)
+            self._sync_spinner()
         self._caption = caption_text(text)
         self._stamp = stamp
         self._start(self._rise_animation, self._set_rise, 0.0, 1.0)
@@ -170,6 +205,7 @@ class SlideShow(QWidget):
         self._current = self._previous = None
         self._fade, self._scale, self._rise, self._previous_scale = 1.0, 1.0, 1.0, 1.0
         self._caption = self._stamp = ""
+        self._sync_spinner()
         self.update()
 
     def _start(self, animation: QVariantAnimation, setter, start: float, end: float) -> None:
@@ -219,9 +255,25 @@ class SlideShow(QWidget):
                                QRectF(self._current.rect()))
             painter.setOpacity(1.0)
         painter.restore()
+        if self._current is None and self._waiting:
+            self._paint_loading(painter, picture)
         self._paint_stamp(painter, picture)
         self._paint_caption(painter, band)
         painter.end()
+
+    def _paint_loading(self, painter: QPainter, picture: QRectF) -> None:
+        """The spinner and its label, centred on the empty stage. Drawn only
+        while a frame is actually coming: a stage with nothing to show and
+        nothing on its way says that by staying empty."""
+        radius = tokens.px(LOADING_RADIUS)
+        text_box = QRectF(picture.left(), 0, picture.width(), tokens.px(LOADING_TEXT_HEIGHT))
+        text_box.moveCenter(QPointF(picture.center().x(), picture.center().y() + radius + tokens.px(LOADING_TEXT_GAP)))
+        painter.save()
+        painter.setFont(font(SMALL_SIZE))
+        painter.setPen(QColor(tokens.DIM))
+        painter.drawText(text_box, int(Qt.AlignmentFlag.AlignHCenter) | int(Qt.AlignmentFlag.AlignTop), LOADING_TEXT)
+        painter.restore()
+        paint_spinner(painter, picture.center(), radius, self._spinner.phase())
 
     def _caption_height(self) -> float:
         metrics = QFontMetricsF(font(CAPTION_SIZE, 600))
@@ -285,7 +337,7 @@ class FramePreview(QWidget):
     ASPECT = 16 / 9
     MIN_WIDTH = 160
 
-    def __init__(self, parent: QWidget | None = None, *, width: int = 480):
+    def __init__(self, parent: QWidget | None = None, *, width: int = 480, animated: bool = True):
         super().__init__(parent)
         self.setObjectName("EpisodeFramePreview")
         self._image: QImage | None = None
@@ -293,6 +345,9 @@ class FramePreview(QWidget):
         self._video_size: tuple[int, int] = (0, 0)
         self._tone = "ok"
         self._width = tokens.px(width)
+        self._spinner = Spinner(self, animated=animated)
+        self._spinner.changed.connect(self.update)
+        self._waiting = False
         self.fit(self._width)
 
     def fit(self, max_width: int) -> None:
@@ -306,10 +361,28 @@ class FramePreview(QWidget):
 
     def set_image(self, image: QImage | None) -> None:
         self._image = None if image is None or image.isNull() else image
+        self._sync_spinner()
         self.update()
 
     def has_image(self) -> bool:
         return self._image is not None
+
+    def waiting(self) -> bool:
+        """A frame this preview asked for has not arrived yet."""
+        return self._waiting
+
+    def set_waiting(self, waiting: bool) -> None:
+        """Say whether a frame is on its way, so the empty box shows a spinner
+        rather than the same gradient a settled, picture-less one does."""
+        waiting = bool(waiting)
+        if waiting == self._waiting:
+            return
+        self._waiting = waiting
+        self._sync_spinner()
+        self.update()
+
+    def _sync_spinner(self) -> None:
+        self._spinner.set_running(self._waiting and self._image is None)
 
     def set_box(self, box: tuple[int, int, int, int] | None, video_size: tuple[int, int] = (0, 0),
                 tone: str = "ok") -> None:
@@ -345,6 +418,8 @@ class FramePreview(QWidget):
             paint_placeholder(painter, outer)
             target = contain_rect(QSize(*self._video_size), outer) if all(self._video_size) else outer
             frame = self._video_size
+            if self._waiting:
+                paint_spinner(painter, outer.center(), tokens.px(LOADING_RADIUS), self._spinner.phase())
         self._paint_box(painter, target, frame)
         painter.end()
 

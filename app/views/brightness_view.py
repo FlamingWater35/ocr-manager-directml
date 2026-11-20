@@ -136,6 +136,7 @@ from app.views.inspector_sections import (
     small_button,
 )
 from app.views.ranges_view import Timeline
+from app.views.loading import Spinner, paint_spinner
 from app.widgets.base import KvRow, SectionHeader
 
 # --- copy ------------------------------------------------------------------
@@ -154,6 +155,8 @@ MASK_TOGGLE_TEXT = "Raw ⇄ masked"
 TILE_TIP = "Wheel: zoom around the cursor | drag: pan | double-click: fit"
 TILE_LOADING = "Loading…"
 TILE_UNREADABLE = "This frame could not be read"
+LOADING_SPINNER_RADIUS = 11      # mockup px, above a tile's "Loading…"
+LOADING_SPINNER_GAP = 16         # mockup px between the arc and the words
 CURVE_HEADER = "Threshold | keeps pixels where min(B,G,R) ≥ t"
 CURVE_HINT = "Drag anywhere — every tile redraws in under a millisecond"
 CURVE_CAPTION = "■ OCR holds up"
@@ -435,6 +438,9 @@ class ZoomTile(QWidget):
         self.setToolTip(TILE_TIP)
         self._pixels: StripPixels | None = None
         self._unreadable = False             # its strip came back unreadable: say so, not "Loading…"
+        self._spinner = Spinner(self)
+        self._spinner.changed.connect(self.update)
+        self._spinner.set_running(True)      # a tile starts with no strip
         self._scale: float | None = None               # None: at fit
         self._centre: tuple[float, float] | None = None
         self._t = DEFAULT_BRIGHTNESS
@@ -484,12 +490,21 @@ class ZoomTile(QWidget):
             self._unreadable = unreadable
             self.update()
         if pixels is self._pixels:
+            if not unreadable:
+                self._sync_spinner()
             return
         old, self._pixels = self._pixels, pixels
         if pixels is None or old is None or pixels.strip.shape != old.strip.shape:
             self._scale = self._centre = None
         self.setCursor(Qt.CursorShape.OpenHandCursor if pixels is not None
                        else Qt.CursorShape.ArrowCursor)
+        self._sync_spinner()
+
+    def _sync_spinner(self) -> None:
+        """The arc turns while the strip is genuinely on its way -- not once it
+        has arrived, and not for one the decoder could not read: a tile saying
+        "This frame could not be read" must not also look busy."""
+        self._spinner.set_running(self._pixels is None and not self._unreadable)
 
     def has_pixels(self) -> bool:
         return self._pixels is not None
@@ -791,6 +806,11 @@ class ZoomTile(QWidget):
             painter.setPen(QColor(tokens.DIM2))
             painter.setFont(_font(tokens.FONT_SIZE_BTN_SM))
             painter.drawText(content, Qt.AlignmentFlag.AlignCenter, self.placeholder_text())
+            if not self._unreadable:
+                centre = QPointF(content.center().x(),
+                                 content.center().y() - painter.fontMetrics().height() / 2
+                                 - tokens.px(LOADING_SPINNER_GAP))
+                paint_spinner(painter, centre, tokens.px(LOADING_SPINNER_RADIUS), self._spinner.phase())
         painter.restore()
 
         caption = QRectF(TILE_BORDER, self.height() - CAPTION_HEIGHT,

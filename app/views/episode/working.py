@@ -372,6 +372,11 @@ class WorkingView(QWidget):
         self.feed.frame_ready(time_value)
         if self._held is not None and abs(self._held.mid - time_value) < 1e-3:
             self._show(self._held, hold=0.0)
+        elif self._shown is not None and abs(self._shown.mid - time_value) < 1e-3:
+            # The line on screen was released without its frame (the feed
+            # stops waiting after FRAME_TIMEOUT); the frame has caught up, so
+            # show it under the same words instead of leaving the spinner on.
+            self._show(self._shown, hold=0.0)
 
     def tick(self) -> None:
         """Release what is due (the poll timer calls this every POLL_MS)."""
@@ -405,7 +410,22 @@ class WorkingView(QWidget):
         frame = self._controller.frame(self._name, line.mid) if self._name else None
         image = bgr_to_qimage(frame) if frame is not None else None
         self.slideshow.show_line(image, line.text, format_duration(line.start), hold)
+        self.slideshow.set_waiting(self._waiting_for(line))
         self._shown = line
+
+    def _waiting_for(self, line: Line) -> bool:
+        """Is this line's frame still on its way?
+
+        A frame the controller could not read is never coming, so it must not
+        leave a spinner turning for the rest of the run -- that is the case
+        the old placeholder hid, and the reason `frame_unavailable` exists.
+        """
+        if self._name is None:
+            return False
+        if self._controller.frame(self._name, line.mid) is not None:
+            return False
+        unavailable = getattr(self._controller, "frame_unavailable", None)
+        return not (unavailable is not None and unavailable(self._name, line.mid))
 
     def _on_line_clicked(self, start: float, end: float, text: str) -> None:
         line = Line(start, end, text)

@@ -283,6 +283,30 @@ PARITY = {
         "tests/ui/test_updates.py::test_a_raising_check_is_logged_not_raised",
         "tests/ui/test_updates.py::test_latest_location_reads_the_redirect_without_following_it",
     ],
+    # The label pass used to report nothing to the live view: on the short
+    # reference clip it was 86.0 s of a 96.6 s run with zero subtitle events,
+    # so the picture and the script stopped changing for the whole phase. The
+    # spinner rows are the other half -- "no picture yet" is a state the user
+    # looks at for seconds, and it has to look different from "no picture".
+    "Live view: the label pass reports its labels as it finds them": [
+        "tests/test_label_reporting.py::test_every_label_is_reported_once_while_the_pass_runs",
+        "tests/test_label_reporting.py::test_the_report_comes_from_inside_phase_3_not_after_the_pass",
+        "tests/test_label_reporting.py::test_the_real_phase_3_loop_emits_each_segment_as_its_cluster_finishes",
+        "tests/test_label_reporting.py::test_reported_times_are_normalized_by_the_stream_start_time",
+        "tests/test_label_reporting.py::test_a_segment_phase_4_drops_for_its_duration_was_still_reported",
+        "tests/test_label_reporting.py::test_scan_reports_segments_before_the_post_processing_merges_them",
+        "tests/test_label_reporting.py::test_the_callback_is_optional_and_none_changes_nothing",
+        "tests/ui/test_episode_views.py::test_the_working_screen_spins_while_a_released_line_waits_for_its_frame",
+    ],
+    "Loading indicator: a frame on its way looks different from one that is not": [
+        "tests/ui/test_loading.py::test_the_slideshow_spins_only_while_it_has_no_picture_and_one_is_coming",
+        "tests/ui/test_loading.py::test_a_late_frame_stops_the_slideshow_spinner_without_clearing_the_line",
+        "tests/ui/test_loading.py::test_a_preview_spins_until_its_frame_arrives",
+        "tests/ui/test_loading.py::test_the_slideshow_paints_its_spinner_on_an_empty_stage",
+        "tests/ui/test_episode_views.py::test_a_frame_the_decoder_could_not_read_stops_the_spinner",
+        "tests/ui/test_episode_views.py::test_a_late_frame_replaces_the_spinner_under_the_same_words",
+        "tests/ui/test_controller.py::test_frame_pending_and_frame_unavailable_tell_the_three_none_cases_apart",
+    ],
 }
 
 MANUAL_CHECKS = {

@@ -96,6 +96,7 @@ from app.views.inspector_sections import (
     small_button,
 )
 from app.views.ranges_view import Timeline
+from app.views.loading import Spinner, paint_spinner
 from app.views.thumbnail import GRADIENT_DEGREES, GRADIENT_END_STOP, css_gradient
 from app.widgets.base import Button, KvRow, SectionHeader
 
@@ -124,6 +125,8 @@ DETECTED_TAG = "Dashed grey = the latest detection"
 # is not snapped to a whole device pixel, and rounding 1.5 and 1.2 to ints
 # would collapse two deliberately different weights onto the same one.
 FOCUS_RING_WIDTH = 1.5 * tokens.UI_SCALE
+LOADING_SPINNER_RADIUS = 11      # mockup px, above the canvas' "Loading frame…"
+LOADING_SPINNER_GAP = 16         # mockup px between the arc and the words
 BOX_EDGE_WIDTH = 1.5 * tokens.UI_SCALE   # the amber crop box's own outline
 PAGE_MARGIN = tokens.px(12)       # the page's own padding, all four sides
 CANVAS_MIN_WIDTH = tokens.px(240)  # the canvas never shrinks below this ...
@@ -366,6 +369,9 @@ class CropCanvas(QWidget):
         self._mask_drag: list | None = None
         self._mask_cache: tuple | None = None
         self._focus_ring = False                # what the last paint actually drew
+        self._spinner = Spinner(self)
+        self._spinner.changed.connect(self.update)
+        self._spinner.set_running(True)         # the canvas starts with no frame
 
     # --- focus ------------------------------------------------------------------
 
@@ -417,6 +423,9 @@ class CropCanvas(QWidget):
         self._frame = frame
         self._image = bgr_to_qimage(frame)
         self._mask_cache = None
+        # The arc turns only while there is nothing to show; a frame that has
+        # arrived stops it, and a canvas that never had one keeps it turning.
+        self._spinner.set_running(self._image is None or self._image.isNull())
         self.update()
 
     def placeholder_text(self) -> str:
@@ -759,6 +768,21 @@ class CropCanvas(QWidget):
         font.setPointSizeF(tokens.font_pt(tokens.FONT_SIZE_SM))
         painter.setFont(font)
         painter.drawText(bounds, int(Qt.AlignmentFlag.AlignCenter), self.PLACEHOLDER_TEXT)
+        self._paint_loading_spinner(painter, bounds)
+
+    def _paint_loading_spinner(self, painter: QPainter, bounds: QRectF) -> None:
+        """The turning arc above "Loading frame…".
+
+        The words alone were static, so a canvas waiting on a decode looked
+        exactly like one that had given up -- and a 4K frame costs 0.33 s,
+        several times that while a run is using the machine. The arc is drawn
+        in the same paint event, just above the words, so it turns for as long
+        as the placeholder is what is on screen and never outlives the frame.
+        """
+        metrics = painter.fontMetrics()
+        centre = QPointF(bounds.center().x(),
+                         bounds.center().y() - metrics.height() / 2 - tokens.px(LOADING_SPINNER_GAP))
+        paint_spinner(painter, centre, tokens.px(LOADING_SPINNER_RADIUS), self._spinner.phase())
 
     def _masked_image(self) -> QImage | None:
         """The crop region of the frame in hand, through the OCR pass's

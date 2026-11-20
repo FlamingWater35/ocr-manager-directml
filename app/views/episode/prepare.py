@@ -410,8 +410,17 @@ class PrepareView(QWidget):
             frame = self._controller.frame(self._name, time_value)
             if frame is not None:
                 self.preview.set_image(bgr_to_qimage(frame))
+                self.preview.set_waiting(False)
             else:
                 self._controller.request_frames(self._name, [time_value])
+                # A frame on its way gets a spinner; one the decoder could not
+                # read gets nothing, because it is never coming and a turning
+                # spinner would be a lie about it.
+                self.preview.set_waiting(not self._preview_unavailable(time_value))
+
+    def _preview_unavailable(self, time_value: float) -> bool:
+        unavailable = getattr(self._controller, "frame_unavailable", None)
+        return bool(unavailable is not None and unavailable(self._name, time_value))
 
     def _refresh_buttons(self, name: str) -> None:
         startable = name in self._controller.startable_files(include_done=True)

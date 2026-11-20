@@ -275,8 +275,13 @@ class DoneView(QWidget):
         frame = self._controller.frame(self._name, mid_time(line))
         if frame is not None:
             self.preview.set_image(bgr_to_qimage(frame))
+            self.preview.set_waiting(False)
         else:
             self._controller.request_frames(self._name, [mid_time(line)])
+            # A spinner only while the frame is really on its way: one the
+            # decoder could not read is never coming.
+            unavailable = getattr(self._controller, "frame_unavailable", None)
+            self.preview.set_waiting(not (unavailable is not None and unavailable(self._name, mid_time(line))))
 
     def _on_frame_ready(self, name: str, time_value: float) -> None:
         line = self._preview_line
@@ -285,6 +290,7 @@ class DoneView(QWidget):
         frame = self._controller.frame(name, mid_time(line))
         if frame is not None:
             self.preview.set_image(bgr_to_qimage(frame))
+            self.preview.set_waiting(False)
 
 
 def _escape(text: str) -> str:

@@ -102,6 +102,8 @@ class StubController(QObject):
         self.running: dict[str, set[str]] = {}
         self.startable: list[str] = []
         self.frames: dict[tuple, np.ndarray] = {}
+        self.unavailable: set[tuple] = set()      # times the decoder could not read
+        self.inflight: set[tuple] = set()         # times a fetch is under way for
         self.requests: list[tuple[str, list[float]]] = []
         self.snapshot: RunSnapshot | None = None
         self.subtitles: list[tuple[float, float, str]] = []
@@ -131,6 +133,12 @@ class StubController(QObject):
 
     def frame(self, name: str, time: float, exact: bool = False):
         return self.frames.get(_key(name, time))
+
+    def frame_unavailable(self, name: str, time: float) -> bool:
+        return _key(name, time) in self.unavailable
+
+    def frame_pending(self, name: str, time: float, exact: bool = False) -> bool:
+        return _key(name, time) in self.inflight
 
     def run_snapshot(self) -> RunSnapshot | None:
         return self.snapshot
@@ -486,6 +494,84 @@ def test_a_frame_that_never_comes_releases_the_line_after_the_timeout(qapp):
     view.tick()
     assert view.script.lines() == [Line(*line)]
     assert view.slideshow.caption() == line[2] and not view.slideshow.has_picture()
+
+
+def test_the_working_screen_spins_while_a_released_line_waits_for_its_frame(qapp):
+    """A line released without its frame keeps its words and says a picture is
+    coming. Before this, the stage showed the previous line's picture (or an
+    empty gradient) with nothing to say a frame was on its way."""
+    controller = StubController(ready_entry())
+    controller.snapshot = run_snapshot(progress=0.1)
+    clock = FakeClock()
+    view = working(controller, clock)
+    line = batch(1)[0]
+    controller.run_subtitle.emit(NAME, *line)
+    settle()
+    view.tick()
+    clock.advance(LineFeed.FRAME_TIMEOUT)
+    view.tick()
+
+    assert view.script.lines() == [Line(*line)]
+    assert not view.slideshow.has_picture()
+    assert view.slideshow.waiting(), "the frame is still on its way, so the stage must spin"
+
+
+def test_a_frame_the_decoder_could_not_read_stops_the_spinner(qapp):
+    """The one case a spinner would lie about: the frame is never coming, so
+    the stage must stop turning and stay quiet instead."""
+    controller = StubController(ready_entry())
+    controller.snapshot = run_snapshot(progress=0.1)
+    clock = FakeClock()
+    view = working(controller, clock)
+    line = batch(1)[0]
+    controller.unavailable.add(_key(NAME, Line(*line).mid))
+    controller.run_subtitle.emit(NAME, *line)
+    settle()
+    view.tick()
+    clock.advance(LineFeed.FRAME_TIMEOUT)
+    view.tick()
+
+    assert view.script.lines() == [Line(*line)]
+    assert not view.slideshow.waiting(), "an unreadable frame is not one still coming"
+
+
+def test_a_late_frame_replaces_the_spinner_under_the_same_words(qapp):
+    """The feed gives up waiting after FRAME_TIMEOUT, so the line is on screen
+    with a spinner; when the frame finally lands it must be shown under the
+    words already there, not left turning for ever."""
+    controller = StubController(ready_entry())
+    controller.snapshot = run_snapshot(progress=0.1)
+    clock = FakeClock()
+    view = working(controller, clock)
+    line = batch(1)[0]
+    controller.run_subtitle.emit(NAME, *line)
+    settle()
+    view.tick()
+    clock.advance(LineFeed.FRAME_TIMEOUT)
+    view.tick()
+    assert view.slideshow.waiting() and not view.slideshow.has_picture()
+
+    controller.deliver_frame(NAME, Line(*line).mid)
+    settle()
+
+    assert view.slideshow.has_picture(), "the frame arrived and must be shown"
+    assert not view.slideshow.waiting()
+    assert view.slideshow.caption() == line[2], "the words do not change under it"
+
+
+def test_a_line_with_its_frame_never_shows_a_spinner(qapp):
+    controller = StubController(ready_entry())
+    controller.snapshot = run_snapshot(progress=0.1)
+    clock = FakeClock()
+    view = working(controller, clock)
+    line = batch(1)[0]
+    controller.deliver_frame(NAME, Line(*line).mid)
+    controller.run_subtitle.emit(NAME, *line)
+    settle()
+    view.tick()
+
+    assert view.slideshow.has_picture()
+    assert not view.slideshow.waiting()
 
 
 def test_other_files_lines_are_ignored(qapp):

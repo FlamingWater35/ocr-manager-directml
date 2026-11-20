@@ -741,6 +741,24 @@ class ProjectController(QObject):
         for the fetch `request_frames(..., exact=True)` started."""
         return self._frames.get(_frame_key(name, time), exact=exact)
 
+    def frame_pending(self, name: str, time: float, exact: bool = False) -> bool:
+        """A fetch for this frame is under way, so `frame()` answering None
+        means "not yet" rather than "never".
+
+        A view that draws a placeholder needs this distinction to be honest
+        about it: `frame()` answers None for a frame still on its way, one
+        that could not be read, and one nobody asked for, and those are three
+        different things to put on screen -- a spinner, a message, and
+        nothing yet. This is the one the spinner is for.
+        """
+        return self._fetching(_frame_key(name, time), exact)
+
+    def frame_unavailable(self, name: str, time: float) -> bool:
+        """True once a frames job came back without this frame: it will not be
+        asked for again this session, so a view waiting for it would wait for
+        ever. The counterpart of `strip_unavailable`, for the same reason."""
+        return self._frames.is_unavailable(_frame_key(name, time))
+
     def request_strips(self, name: str, crop_box: tuple[int, int, int, int], times: list[float]) -> None:
         """Fetch `name`'s OCR-exact crop strips at `times`, for `crop_box`.
 

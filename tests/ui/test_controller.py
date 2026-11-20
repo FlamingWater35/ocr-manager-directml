@@ -2132,6 +2132,54 @@ def test_a_finished_frame_job_fills_the_cache_and_announces_each_frame(
     assert ready.calls == [("ep01.mkv", 10.0)]
 
 
+def test_frame_pending_and_frame_unavailable_tell_the_three_none_cases_apart(
+        make_controller, fake_runner, tmp_project):
+    """`frame()` answers None for a frame still coming, one that could not be
+    read, and one nobody asked for -- and a spinner needs to know which.
+
+    This is the distinction the loading indicator is built on: a view may show
+    a turning arc only for the first of the three. The other two are asserted
+    here too, because a method that answered True for all of them would make
+    every unreadable frame spin for ever.
+    """
+    controller, _ = _frames_controller(make_controller, tmp_project)
+
+    # Nobody has asked: neither pending nor unavailable.
+    assert controller.frame("ep01.mkv", 10.0) is None
+    assert not controller.frame_pending("ep01.mkv", 10.0)
+    assert not controller.frame_unavailable("ep01.mkv", 10.0)
+
+    # A fetch is under way.
+    controller.request_frames("ep01.mkv", [10.0, 20.0])
+    assert controller.frame_pending("ep01.mkv", 10.0)
+    assert controller.frame_pending("ep01.mkv", 20.0)
+    assert not controller.frame_unavailable("ep01.mkv", 10.0)
+
+    # It comes back with one frame and nothing for the other.
+    fake_runner.finish(fake_runner.last("frames", "ep01.mkv"),
+                       FramesResult("ep01.mkv", {10.0: _frame(10)}))
+    controller.drain_events()
+
+    assert not controller.frame_pending("ep01.mkv", 10.0)
+    assert controller.frame("ep01.mkv", 10.0) is not None
+    assert not controller.frame_pending("ep01.mkv", 20.0), "the job is over, so nothing is in flight"
+    assert controller.frame_unavailable("ep01.mkv", 20.0), "the decoder could not read it"
+
+
+def test_frame_pending_follows_the_exactness_of_the_request(make_controller, fake_runner, tmp_project):
+    """An exact request is not satisfied by a lossy fetch under way, so a view
+    waiting for the decoder's own levels must keep its spinner up until the
+    exact one lands."""
+    controller, _ = _frames_controller(make_controller, tmp_project)
+
+    controller.request_frames("ep01.mkv", [10.0])
+    assert controller.frame_pending("ep01.mkv", 10.0)
+    assert not controller.frame_pending("ep01.mkv", 10.0, exact=True)
+
+    controller.request_frames("ep01.mkv", [10.0], exact=True)
+    assert controller.frame_pending("ep01.mkv", 10.0, exact=True)
+
+
 def test_a_frame_job_that_fails_is_not_asked_for_again(make_controller, fake_runner, tmp_project):
     """A failure marks every time it was asked for: one attempt per session,
     not one per repaint."""
@@ -2145,6 +2193,7 @@ def test_a_frame_job_that_fails_is_not_asked_for_again(make_controller, fake_run
     controller.request_frames("ep01.mkv", [10.0, 20.0])
     assert len(fake_runner.of_kind("frames", "ep01.mkv")) == 1
     assert controller.frame("ep01.mkv", 10.0) is None
+    assert controller.frame_unavailable("ep01.mkv", 10.0)
     assert "decode error" in controller.log_text("Pipeline")
 
 

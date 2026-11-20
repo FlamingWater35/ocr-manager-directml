@@ -1350,7 +1350,8 @@ class LabelScanner:
         box = self._get_encompassing_box([l["box"] for l in lines])
         return text, conf, box
 
-    def _phase3_ocr_and_segment(self, groups, ocr, progress=None, cancel_event=None):
+    def _phase3_ocr_and_segment(self, groups, ocr, progress=None, cancel_event=None,
+                                on_segment=None):
         """OCR at regular intervals, detect content changes to split back-to-back labels.
 
         Clusters spatially close groups and sends one combined crop per cluster
@@ -1361,6 +1362,10 @@ class LabelScanner:
         2. Run dual OCR (cleaned + raw) once per sample
         3. Assign OCR lines to individual groups by Y position
         4. Per-group content change detection to split back-to-back labels
+
+        `on_segment`, when given, is called with each segment the moment its
+        cluster is finished -- see `scan` for why the live view needs that and
+        why it happens here rather than in phase 4.
 
         Returns list of label segments:
         {
@@ -1486,6 +1491,9 @@ class LabelScanner:
                     global_gi = group_to_idx[id(group)]
                     segments = self._best_single_reading(group_ocr_results[gi], group["encompassing_box"])
                     all_segments.extend(segments)
+                    if on_segment is not None:
+                        for segment in segments:
+                            on_segment(segment)
 
         return all_segments
 
@@ -2087,7 +2095,6 @@ class LabelScanner:
                         bbox_y_max=y_max,
                     )
                 )
-
                 if progress is not None:
                     progress.update(1)
 
@@ -2441,7 +2448,8 @@ class LabelScanner:
     # Main entry point
     # ------------------------------------------------------------------
 
-    def scan(self, det_engine, ocr, time_start, time_end, stream_start_time, progress=None, cancel_event=None):
+    def scan(self, det_engine, ocr, time_start, time_end, stream_start_time, progress=None,
+             cancel_event=None, subtitle_callback=None):
         """Run the 4-phase label scanning pipeline.
 
         Args:
@@ -2452,10 +2460,49 @@ class LabelScanner:
             stream_start_time: The container's start_time, subtracted so ASS times count from the player's zero.
             progress: Optional ProgressTracker for unified progress reporting.
             cancel_event: Optional threading.Event for cooperative cancellation.
+            subtitle_callback: Optional callback(start, end, text) for the live
+                view, called with each label as soon as phase 3 has both its
+                text and its span.
 
         Returns:
             List of LabelResult with normalized PTS values.
+
+        Why `subtitle_callback` exists here at all. The label pass used to
+        report nothing while it ran: the dialogue pass's callback stopped
+        being called the moment phase 1 of the labels started, and the run's
+        only visible sign of life was the progress bar. On the short
+        reference clip (17.5 s, 4K) that silence measured 86.0 s of a 96.6 s
+        run -- 89% of it -- and the window's picture and script sat still for
+        all of it even though the pass went on to find 2 labels. A live view
+        has nothing to show without this.
+
+        Phase 3 is where the callback fires, not the end of the pass and not
+        phase 4, because phase 3 is the earliest point where a label has both
+        its text and a span -- phases 1 and 1.5 only have boxes and readings,
+        and phase 4 only sharpens boundaries that phase 3 already knows. The
+        measurement that chose it: on the same clip the first segment's text
+        is final at 54.2 s (phase 3 finishes its first cluster), while phase 4
+        does not return its first label until 100.4 s of a 100.4 s run. Firing
+        in phase 4 would have left the view silent for 89 % of the run and
+        then delivered every label at the very end, which is the defect again
+        with extra steps.
+
+        What is reported is each segment as phase 3 finalized it, BEFORE phase
+        4 refines its boundaries and before the post-processing merges below --
+        a fragment that `_merge_split_labels` later joins to its neighbour is
+        shown on its own first. That is deliberate: this is a preview of the
+        pass's progress, and the returned labels (and the .ass written from
+        them) stay the authority. The span a segment carries here is the span
+        of its OCR readings, which is what the view needs to seek a frame; the
+        refined boundary moves it by a frame or two at most.
         """
+        def report(segment: dict) -> None:
+            if subtitle_callback is None:
+                return
+            subtitle_callback(max(0.0, segment["start_pts"] - stream_start_time),
+                              max(0.0, segment["end_pts"] - stream_start_time),
+                              segment["text"])
+
         # Phase 1: Detection scan, keeping the crops phase 1.5 will OCR
         retained = _RetainedCrops(self.PHASE15_RETAIN_BUDGET_BYTES)
         text_frames = self._phase1_find_text_frames(det_engine, time_start, time_end, progress, cancel_event=cancel_event, retain=retained)
@@ -2479,7 +2526,8 @@ class LabelScanner:
             return []
 
         # Phase 3: Crop, clean, recognize
-        segments = self._phase3_ocr_and_segment(groups, ocr, progress, cancel_event=cancel_event)
+        segments = self._phase3_ocr_and_segment(groups, ocr, progress, cancel_event=cancel_event,
+                                                on_segment=report)
         logger.debug("labels: phase 3 produced %d segment(s)", len(segments))
         if not segments or (cancel_event is not None and cancel_event.is_set()):
             logger.debug("labels: stopping after phase 3 (no segments or cancelled)")

@@ -43,6 +43,13 @@ def _get_subtitles_for_range(
     `ocr` and `det_engine` (None when no label pass runs) are engines the
     caller holds leases on for longer than this call -- see `get_subtitles`.
 
+    `subtitle_callback` reaches both passes: the dialogue pass emits as it
+    recognizes, and the label pass emits each label as phase 4 times it (see
+    `LabelScanner.scan` for why that matters and where it fires). A run that
+    reads labels after its dialogue used to report nothing at all for the
+    whole label pass -- 89 % of a 96.6 s run on the 17.5 s reference clip --
+    which left the live view with no picture and no text to show.
+
     This is the body `get_subtitles` used to run once, directly against a
     freshly-constructed `Video`, before it could take multiple ranges. It is
     unchanged except for taking `v` as a parameter instead of constructing
@@ -88,7 +95,9 @@ def _get_subtitles_for_range(
             with Capture(video_path) as cap:
                 stream_start_time = cap.get_stream_start_time() if hasattr(cap, 'get_stream_start_time') else 0.0
 
-        labels = scanner.scan(det_engine, ocr, time_start, time_end, stream_start_time, progress=progress, cancel_event=cancel_event)
+        labels = scanner.scan(det_engine, ocr, time_start, time_end, stream_start_time,
+                              progress=progress, cancel_event=cancel_event,
+                              subtitle_callback=subtitle_callback)
 
         if cancel_event is not None and cancel_event.is_set():
             return dialogue_ass if dialogue_ass else ""
