@@ -431,6 +431,21 @@ def test_script_rows_follow_and_click(qapp):
     panel.close()
 
 
+def test_the_follow_button_never_becomes_a_window_of_its_own(qapp):
+    """A widget added to a layout that is not in a widget yet has no parent,
+    so showing it then paints a stray frame on the desktop. That is what made
+    the small window flash up on every launch: `ScriptPanel.__init__` showed
+    `follow_button` while its `QHBoxLayout` was still free, which cost a
+    656x519 native window for ~15 ms before the real one appeared. The layout
+    is installed first now, and this pins it -- an unparented child here is
+    the whole defect, so `isWindow()` is the assertion, not the size."""
+    panel = ScriptPanel(animated=False)
+    assert panel.follow_button.parent() is panel
+    assert not panel.follow_button.isWindow()
+    assert panel.follow_button.isVisibleTo(panel)
+    panel.close()
+
+
 # --------------------------------------------------------------------------
 # WorkingView
 # --------------------------------------------------------------------------

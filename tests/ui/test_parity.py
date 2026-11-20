@@ -307,6 +307,16 @@ PARITY = {
         "tests/ui/test_episode_views.py::test_a_late_frame_replaces_the_spinner_under_the_same_words",
         "tests/ui/test_controller.py::test_frame_pending_and_frame_unavailable_tell_the_three_none_cases_apart",
     ],
+    # A widget added to a layout that is not in a widget yet has no parent, so
+    # it is a window; showing it then paints a stray frame on the desktop. On
+    # every launch that was the small window flashing up before the real one.
+    "Startup: no stray window is shown before the main one": [
+        "tests/ui/test_stray_windows.py::test_a_script_panel_shows_no_parentless_window",
+        "tests/ui/test_stray_windows.py::test_a_live_script_panel_shows_no_parentless_window",
+        "tests/ui/test_stray_windows.py::test_the_window_level_screens_show_no_parentless_window",
+        "tests/ui/test_stray_windows.py::test_the_follow_pill_has_a_parent_before_it_is_shown",
+        "tests/ui/test_episode_views.py::test_the_follow_button_never_becomes_a_window_of_its_own",
+    ],
 }
 
 MANUAL_CHECKS = {

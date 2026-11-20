@@ -207,9 +207,15 @@ class ScriptPanel(QWidget):
         self.follow_button.clicked.connect(lambda: self.set_following(True))
         foot.addStretch(1)
         foot.addWidget(self.follow_button)
-        self.follow_button.setVisible(live)
         foot.addStretch(1)
+        # `foot` is installed before the button is shown on purpose. A widget
+        # added to a layout that is not in a widget yet has no parent, so it is
+        # its own window: showing it then paints a stray 640x480 frame on the
+        # desktop, which at startup is the small window that flashes up before
+        # the real one (measured: a 656x519 native window for ~15 ms, then the
+        # window it belongs to). `tests/ui/test_stray_windows.py` pins it.
         column.addLayout(foot)
+        self.follow_button.setVisible(live)
 
         self._flash_animation = QVariantAnimation(self)
         self._flash_animation.setStartValue(1.0)
